@@ -1,0 +1,9 @@
+<library path="my_rviz_panel">
+  <class name="my_rviz_panel/MyPanel" 
+         type="my_rviz_panel::MyPanel" 
+         base_class_type="rviz_common::Panel">
+    <description>
+      A custom RViz2 panel to record waypoints from TF and command Nav2 Multi-point navigation.
+    </description>
+  </class>
+</library>

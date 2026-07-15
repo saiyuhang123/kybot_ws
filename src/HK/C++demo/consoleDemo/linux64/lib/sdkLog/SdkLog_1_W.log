@@ -1,0 +1,22 @@
+[2026-07-15 15:14:39.093][INF] The COM:HCCoreBase ver is 6.1.4.15, 2020_03_05. Async:1.
+[2026-07-15 15:14:39.093][INF] The COM:Core ver is 6.1.11.5, 2025_12_04. Async:1.
+[2026-07-15 15:14:39.093][INF] This HCNetSDK ver is 6.1.11.5 Ver 2025_12_04.
+[2026-07-15 15:14:39.093][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-15 15:14:39.093][INF] dwTotalNum[2048]
+[2026-07-15 15:14:39.094][INF] Private connect 192.168.1.64:8000 sock=131 this=0x169a5af4 cmd=0x10000 port=57014
+[2026-07-15 15:14:39.094][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-15 15:14:39.096][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-15 15:14:39.144][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-15 15:14:40.856][DBG] CComBase::Load, Load szDllPath[/home/nvidia/Documents/HK/HCNetSDKV6.1.11.5_build20251204_ArmLinux64_ZH/demo/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPreview.so] SUCC
+[2026-07-15 15:14:40.856][INF] AbilityAnalyze---Init-- start
+[2026-07-15 15:14:40.856][DBG] AbilityAnalyze---Init-- over, DeviceList path [/home/nvidia/Documents/HK/HCNetSDKV6.1.11.5_build20251204_ArmLinux64_ZH/demo/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/LocalXml/DeviceList.xml], load result[0]
+[2026-07-15 15:14:40.857][DBG] COM_Preview_GetSDKBuildVersion
+[2026-07-15 15:14:40.857][INF] The COM:Preview ver is 6.1.11.5, 2025_12_04.
+[2026-07-15 15:14:40.857][INF] Private connect 192.168.1.64:8000 sock=131 this=0x169a5af4 cmd=0x30000 port=57028
+[2026-07-15 15:14:40.865][INF] ID-IP-CHAN[0-192.168.1.64-1] [CGetTCPStream::Start] Stream Head Data Callback Start
+[2026-07-15 15:14:40.865][INF] ID-IP-CHAN[0-192.168.1.64-1] [CGetTCPStream::Start] Stream Head Data Callback End
+[2026-07-15 15:14:40.865][DBG] ID-IP-CHAN[0-192.168.1.64-1] RTP Format
+[2026-07-15 15:14:45.868][INF] CTransUnitMgr::UnloadTransUnitLib
+[2026-07-15 15:14:45.868][ERR] Interim_UnRigisterTimerProxy, pProxy == NULL, iProxyID[2]
+[2026-07-15 15:14:45.869][DBG] CUserMgr::UnRegisterHeartProxy[0]
+[2026-07-15 15:14:45.870][INF] Private connect 192.168.1.64:8000 sock=131 this=0x169a5af4 cmd=0x10100 port=57044

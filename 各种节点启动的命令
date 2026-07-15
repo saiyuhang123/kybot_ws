@@ -1,0 +1,47 @@
+
+imu
+source /home/nvidia/kybot_ws/wit_ros2_imu_src/install/setup.bash
+    ros2 run wit_ros2_imu wit_ros2_imu --ros-args -p port:=/dev/ttyUSB0 -p baudrate:=921600
+
+激光雷达
+  source /home/nvidia/kybot_ws/rslidar_ros2_ws/install/setup.bash
+    ros2 launch rslidar_sdk start.py
+
+启动雷达点云转换
+    source /home/nvidia/kybot_ws/rs_to_velodyne-master/install/setup.bash
+    ros2 run rs_to_velodyne rs_to_velodyne
+
+can总线
+gnome-terminal --title="CAN_Setup" -- bash -c "
+    echo $PASS | sudo -S ip link set can1 type can bitrate 500000
+    echo $PASS | sudo -S ip link set can1 up
+    echo 'CAN1 已配置完成'
+    exec bash
+
+启动底盘控制
+ source /home/nvidia/kybot_ws/MK-mid_Chassis_Navigation_Middleware/install/setup.bash
+    ros2 launch yhs_can_control yhs_can_control.launch.py
+
+启动底盘速度桥接
+ source /home/nvidia/kybot_ws/MK-mid_Chassis_Navigation_Middleware/install/setup.bash
+    ros2 run yhs_can_control cmd_vel_bridge.py
+
+启动二维雷达
+    source /home/nvidia/kybot_ws/hi_driver_ros2_20260226/hi_driver/install/setup.bash
+    ros2 launch hi_ros2 hins_fe_launch.py
+
+TF_odom->base_link
+ros2 run robot_localization ekf_node --ros-args --params-file /home/nvidia/kybot_ws/robot_location2_ws/param/ekf_config.yaml -p use_sim_time:=false 2>&1 | tee ekf_run.log
+
+TF_base_link->laser_fe
+ ros2 run tf2_ros static_transform_publisher --x 0.7295 --y 0.0 --z 0.1885 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id laser_fe
+
+ TF_velodyne
+ ros2 run tf2_ros static_transform_publisher --x 0.2 --y 0.0 --z 0.5 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id velodyne
+
+ 定位
+ source /home/nvidia/kybot_ws/localization_ws/install/setup.bash
+     ros2 launch fast_lio_localization velodyne_localization.launch.py   use_sim_time:=false   config_file:=velodyne_test.yaml
+
+
+

@@ -1,0 +1,15 @@
+ros2 action send_goal /follow_waypoints nav2_msgs/action/FollowWaypoints "
+poses:
+  - header:
+      stamp: {sec: 0, nanosec: 0}
+      frame_id: 'map'
+    pose:
+      position: {x: -0.649, y: 2.677, z: 0.040}
+      orientation: {x: -0.0067, y: 0.0004, z: -0.6756, w: 0.7373}
+  - header:
+      stamp: {sec: 0, nanosec: 0}
+      frame_id: 'map'
+    pose:
+      position: {x: -0.736, y: 3.673, z: 0.040}
+      orientation: {x: -0.0067, y: 0.0004, z: -0.6756, w: 0.7373}
+"

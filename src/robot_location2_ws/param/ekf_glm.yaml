@@ -1,0 +1,65 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    two_d_mode: true               # ★必须改 true！强制2D模式，不积分Z轴
+    sensor_timeout: 1.0            # 调大一点，给传感器等待时间
+    transform_time_offset: 0.0
+    transform_timeout: 0.0
+    print_diagnostics: true
+    debug: false
+    
+    publish_tf: true               # 发布 odom->base_link
+    publish_acceleration: false
+    
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom              # ★必须 odom，不是 map
+    
+    # ===== 删除所有 example/ 开头的话题配置 =====
+    # 删除 odom1, pose0, twist0 相关的所有行！
+    
+    # ===== 底盘里程计配置 =====
+    odom0: /odom
+    odom0_config: [true,  true,  false,          # X, Y 位置
+                   false, false, true,           # yaw 朝向
+                   true,  false, false,          # vx 线速度
+                   false, false, true,           # vyaw 角速度
+                   false, false, false]          # 加速度不融合
+    odom0_queue_size: 10
+    odom0_relative: false
+    odom0_differential: false
+    
+    # ===== IMU 配置（修正版） =====
+    imu0: /imu/data
+    # ★只融合角速度(vyaw)和加速度(ax)，关闭 ay！
+    imu0_config: [false, false, false,           # 位置不融合
+                  false, false, false,           # 朝向不融合
+                  false, false, false,           # 线速度不融合
+                  false, false, true,            # 只融合角速度 vyaw
+                  true,  false, false]           # ★ 只融合 ax，关闭 ay 和 az！
+    imu0_queue_size: 10
+    imu0_relative: false
+    imu0_differential: false
+    imu0_remove_gravitational_acceleration: true
+    # ===== 关闭控制输入 =====
+    use_control: false             # ★必须改 false！除非你有可靠的 /cmd_vel
+    
+    # ===== 过程噪声（保持默认） =====
+    process_noise_covariance: [0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.025, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.025, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.015]
+    
+    use_sim_time: false            # 实车用 false，bag回放用 true
