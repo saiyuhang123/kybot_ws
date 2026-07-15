@@ -1,0 +1,21 @@
+# OCR Node configuration
+ocr_node:
+  ros__parameters:
+    # Language: 'ch' = Chinese + English, 'en' = English only
+    lang: "ch"
+
+    # Use GPU acceleration (PaddlePaddle-GPU required)
+    # Set to false on Jetson without Paddle-GPU or for CPU-only
+    use_gpu: true
+
+    # Minimum confidence threshold (0.0 - 1.0)
+    # Detections below this score are filtered out
+    conf_threshold: 0.5
+
+    # Minimum interval in seconds between OCR runs
+    # Higher values reduce CPU/GPU load but may miss frames
+    # 0.5 = run at most 2 FPS, 1.0 = 1 FPS
+    processing_interval: 0.5
+
+    # Publish annotated image with bounding boxes on /ocr/annotated_img
+    enable_annotated_img: true
