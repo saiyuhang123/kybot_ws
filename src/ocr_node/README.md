@@ -1,29 +1,72 @@
 # OCR Node — 基于 PaddleOCR 的 ROS2 文字/数字识别节点
 
-完全解耦的独立 ROS2 节点，订阅海康相机发布的 `/hk_camera/image_raw` 图像话题，使用 PaddleOCR 进行文字和数字识别，发布结构化识别结果。
+完全解耦的独立 ROS2 节点，支持两种工作模式：
+
+| 模式 | 默认 | 适用场景 |
+|------|------|----------|
+| **Service 按需识别** ✅ | 默认 | 「机器人走到某位置 → 拍一张 → 识别」 |
+| **Streaming 流式识别** | 可选 | 持续监控画面中的文字变化 |
+
+---
+
+## 典型工作流（按需识别）
+
+```
+机器人导航决策节点                    ocr_node                       hk_camera_node
+┌──────────────┐    /ocr/recognize   ┌────────────────┐  订阅帧      ┌──────────────┐
+│ 到达目标位置  │ ──────────────────▶│ 取最新缓存帧    │ ◀─────────── │ 持续推流      │
+│              │                    │ PaddleOCR 推理   │             │              │
+│ 收到识别结果  │ ◀──────────────────│ 返回 detections  │             │              │
+│ 做下一步决策  │                    └────────────────┘             └──────────────┘
+└──────────────┘
+```
+
+### Python 调用示例
+
+```python
+from ocr_interfaces.srv import RecognizeText
+
+# 在机器人到达目标点后，调用服务识别当前画面
+cli = self.create_client(RecognizeText, '/ocr/recognize')
+
+req = RecognizeText.Request()
+req.conf_threshold = 0.0  # 0 = 使用节点默认阈值
+
+future = cli.call_async(req)
+# ... 等待结果 ...
+
+if future.result().success:
+    for det in future.result().detections:
+        print(f"[{det.confidence:.2f}] {det.text}")
+```
+
+### 命令行调用
+
+```bash
+# 手动触发一次识别
+ros2 service call /ocr/recognize ocr_interfaces/srv/RecognizeText "{conf_threshold: 0.0}"
+
+# 返回示例:
+# success: true
+# message: 'OK: 3 text(s) in 180ms'
+# detections:
+#   - corners: [120.0, 50.0, 300.0, 50.0, ...]
+#     text: "01-23号 货架"
+#     confidence: 0.96
+# processing_time_ms: 180.0
+```
+
+---
 
 ## 架构
-
-```
-hk_camera_node                  ocr_node (本包)              下游消费者
-┌──────────────┐               ┌──────────────────┐        ┌──────────────┐
-│ Hikvision    │   Image       │  PaddleOCR        │ Result │ 决策/记录     │
-│ Camera ──────┼──────────────▶│  ┌────────────┐  │───────▶│ 节点          │
-│              │ /hk_camera/   │  │ DB 文本检测  │  │        │              │
-└──────────────┘ image_raw     │  │ CRNN 识别   │  │ /ocr/  └──────────────┘
-                               │  └────────────┘  │ result
-                               │                  │ Image
-                               │  预览标注 ◉──────┼────────▶ /ocr/annotated_img
-                               └──────────────────┘
-```
-
-## 包结构
 
 ```
 src/ocr_interfaces/          # 纯接口包 (CMake, rosidl)
 ├── msg/
 │   ├── OcrDetection.msg     # 单条检测: corners[8] + text + confidence
 │   └── OcrResult.msg        # 一帧结果: header + detections[] + proc_time
+└── srv/
+    └── RecognizeText.srv    # 按需识别服务: conf_threshold → detections[]
 
 src/ocr_node/                # Python 节点包 (ament_python)
 ├── ocr_node/
@@ -38,61 +81,56 @@ src/ocr_node/                # Python 节点包 (ament_python)
 └── setup.cfg
 ```
 
+---
+
 ## 安装
 
 ### 1. 安装 PaddleOCR
 
 ```bash
-# Jetson / Linux
-pip install paddlepaddle-gpu paddleocr  # GPU 版
+pip install paddlepaddle paddleocr      # CPU 版（推荐，通用）
 # 或
-pip install paddlepaddle paddleocr      # CPU 版
-
-# 如果只需要英文/数字（更轻量）
-pip install paddleocr
+pip install paddlepaddle-gpu paddleocr  # GPU 版
 ```
 
-### 2. 编译接口包
+### 2. 编译
 
 ```bash
 cd ~/kybot_ws
-colcon build --packages-select ocr_interfaces
+colcon build --packages-select ocr_interfaces ocr_node
 source install/setup.bash
 ```
 
-### 3. 构建节点包
+---
+
+## 使用方式
+
+### 方式一：Service 模式（默认，推荐）
 
 ```bash
-colcon build --packages-select ocr_node
-source install/setup.bash
-```
-
-## 使用
-
-### 独立启动
-
-```bash
-# 默认参数 (中文, GPU, 0.5s间隔)
+# 启动 OCR 节点（纯 service 模式，不做持续识别）
 ros2 launch ocr_node ocr_node.launch.py
 
-# 只识别英文/数字
-ros2 launch ocr_node ocr_node.launch.py lang:=en
-
-# 提高处理频率 (200ms, 约5FPS)
-ros2 launch ocr_node ocr_node.launch.py processing_interval:=0.2
-
-# Jetson CPU 模式
-ros2 launch ocr_node ocr_node.launch.py use_gpu:=false
+# 需要识别时，主动调用服务
+ros2 service call /ocr/recognize ocr_interfaces/srv/RecognizeText "{conf_threshold: 0.0}"
 ```
 
-### 与 hk_camera 组合启动
+节点始终缓存相机的最新一帧，服务回调**在当前帧上运行 OCR，阻塞直到完成**（通常 100~500ms），然后返回结果。
 
-可以在 `kybot_bringup` 的 launch 文件中添加：
+### 方式二：Streaming + Service 并存
+
+```bash
+# 开启流式识别（持续识别 + 服务同时可用）
+ros2 launch ocr_node ocr_node.launch.py enable_streaming:=true
+```
+
+流式识别结果通过 `/ocr/result` 话题发布，同时 `/ocr/recognize` 服务始终可用。
+
+### 与 hk_camera 同时启动
+
+在 `kybot_bringup` launch 文件中添加：
 
 ```python
-# 在 bringup.launch.py 中加入
-from launch_ros.actions import Node
-
 ocr_node = Node(
     package='ocr_node',
     executable='ocr_node',
@@ -100,107 +138,71 @@ ocr_node = Node(
     output='screen',
     parameters=[{
         'lang': 'ch',
-        'use_gpu': False,  # Jetson 上建议关 GPU（除非装了 Paddle-GPU）
+        'use_gpu': False,           # Jetson 建议 CPU
         'conf_threshold': 0.5,
-        'processing_interval': 0.5,
-        'enable_annotated_img': True,
+        'enable_streaming': False,   # 按需模式
     }],
 )
 ```
 
-### 命令行查看结果
-
-```bash
-# 查看结构化识别结果
-ros2 topic echo /ocr/result
-
-# 查看标注预览图
-ros2 run rqt_image_view rqt_image_view /ocr/annotated_img
-```
+---
 
 ## ROS2 API
 
-### 订阅
+### 订阅（始终开启，用于缓存最新帧）
 
 | 话题 | 类型 | 说明 |
 |------|------|------|
-| `/hk_camera/image_raw` | `sensor_msgs/Image` | 海康相机原始图像 |
+| `/hk_camera/image_raw` | `sensor_msgs/Image` | 海康相机图像流 |
 
-### 发布
+### Service（核心）
+
+| 服务 | 类型 | 说明 |
+|------|------|------|
+| `/ocr/recognize` | `ocr_interfaces/RecognizeText` | **按需识别**：取最新帧运行 OCR |
+
+**Request:**
+```
+float32 conf_threshold   # 0.0 = 使用节点参数默认值；> 0 则覆盖
+```
+
+**Response:**
+```
+bool success                         # false = 无帧 / 推理失败
+string message                       # 状态描述
+OcrDetection[] detections            # 识别结果列表
+  float32[8] corners                # 四边形角点 (x1,y1, …, x4,y4)
+  string text
+  float32 confidence
+float32 processing_time_ms           # 推理耗时
+```
+
+### 话题（仅 `enable_streaming: true` 时）
 
 | 话题 | 类型 | 说明 |
 |------|------|------|
-| `/ocr/result` | `ocr_interfaces/OcrResult` | 结构化识别结果 |
-| `/ocr/annotated_img` | `sensor_msgs/Image` | 带标注框的预览图（可选） |
-
-### OcrResult 消息格式
-
-```
-std_msgs/Header header              # 原始图像的帧头（时间戳）
-OcrDetection[] detections           # 本次检测到的所有文字区域
-  float32[8] corners                # 四边形4个角点 (x1,y1,x2,y2,x3,y3,x4,y4)
-  string text                       # 识别出的文字
-  float32 confidence               # 置信度 (0.0-1.0)
-float32 processing_time_ms          # 此帧推理耗时(ms)
-```
+| `/ocr/result` | `ocr_interfaces/OcrResult` | 流式识别结果 |
+| `/ocr/annotated_img` | `sensor_msgs/Image` | 标注预览图 |
 
 ### 参数
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `lang` | string | `"ch"` | 语言: `ch`(中英), `en`(英文) |
-| `use_gpu` | bool | `true` | 是否使用 GPU 加速 |
-| `conf_threshold` | float64 | `0.5` | 置信度阈值，低于此值过滤 |
-| `processing_interval` | float64 | `0.5` | 两次 OCR 的最小间隔(秒) |
-| `enable_annotated_img` | bool | `true` | 是否发布标注预览图 |
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `lang` | string | `"ch"` | `ch` 中英 / `en` 英文 |
+| `use_gpu` | bool | `true` | GPU 加速 |
+| `conf_threshold` | float | `0.5` | 置信度阈值 |
+| `enable_streaming` | bool | `false` | **开启流式识别** |
+| `processing_interval` | float | `0.5` | 流式模式下两次识别的间隔(秒) |
+| `enable_annotated_img` | bool | `true` | 流式模式下发布标注图 |
 
-## Jetson 性能调优
+---
 
-### 推荐配置 (Jetson Orin/Xavier)
+## Jetson 调优
 
 ```yaml
 ocr_node:
   ros__parameters:
-    use_gpu: false           # PaddlePaddle-GPU 在 Jetson 上装较复杂，CPU 亦可
-    processing_interval: 0.5 # 2 FPS，平衡精度与负载
-    conf_threshold: 0.6      # 提高阈值减少误检
-    enable_annotated_img: false  # 减少带宽和内存拷贝
+    use_gpu: false            # Paddle-GPU 在 Jetson 上安装复杂，CPU 够用
+    conf_threshold: 0.6       # 提高阈值减少误检
+    enable_streaming: false   # 按需模式，只在需要时消耗算力
 ```
-
-### 如果要用 TensorRT 加速
-
-PaddleOCR 支持 TensorRT 部署，但需要额外配置：
-
-```bash
-# 安装 PaddlePaddle with TensorRT
-pip install paddlepaddle-tensorrt
-```
-
-然后在代码中通过 Paddle Inference 配置 TensorRT，或使用 NVIDIA DeepStream 方案（见方案文档）。
-
-## 自定义：添加数字识别专用逻辑
-
-如果你的场景是**仪表盘数字、计数器**等，可以在 `ocr_node.py` 的 `_process_frame()` 中添加后处理：
-
-```python
-import re
-
-# 在检测结果中过滤/提取数字
-for d in detections:
-    # 只保留含数字的结果
-    if re.search(r'\d', d.text):
-        self.get_logger().info(f'Number found: {d.text}')
-```
-
----
-
-## 依赖
-
-| 包 | 用途 |
-|---|---|
-| `ocr_interfaces` | 自定义 ROS2 消息 |
-| `paddleocr` | OCR 引擎 |
-| `opencv-python` | 图像处理 |
-| `rclpy` | ROS2 Python 客户端 |
-| `cv_bridge` | OpenCV ↔ ROS Image 桥接 |
-| `sensor_msgs` | Image 消息类型 |

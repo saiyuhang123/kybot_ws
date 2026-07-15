@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """
-OCR Node - PaddleOCR-based text and number recognition for ROS2.
+OCR Node — PaddleOCR text/number recognition for ROS2.
+
+Two usage modes (can coexist):
+
+ 1. Streaming mode   — continuous recognition at a fixed interval.
+                       Enable with `enable_streaming: true`.
+ 2. Service mode     — on-demand recognition via `/ocr/recognize`.
+                       Always available; blocks until the latest frame
+                       is processed, then returns results.
 
 Subscribes:
   /hk_camera/image_raw (sensor_msgs/Image) — camera frames
 
-Publishes:
-  /ocr/result        (ocr_interfaces/OcrResult)    — recognized text detections
-  /ocr/annotated_img (sensor_msgs/Image)           — annotated preview image
+Publishes (streaming mode only):
+  /ocr/result         (ocr_interfaces/OcrResult)  — recognized detections
+  /ocr/annotated_img  (sensor_msgs/Image)         — annotated preview
 
-Parameters (ROS2):
-  lang                 — OCR language: 'ch' (Chinese+English), 'en' (English only)
-  use_gpu              — Use GPU acceleration (True/False)
-  conf_threshold       — Minimum confidence to publish (0.0-1.0)
-  processing_interval  — Minimum seconds between OCR runs (float, default 0.5)
-  enable_annotated_img — Publish annotated image (True/False)
+Service:
+  /ocr/recognize      (ocr_interfaces/RecognizeText) — trigger OCR on demand
 """
 
 import threading
@@ -24,14 +28,16 @@ import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 
 from ocr_interfaces.msg import OcrDetection, OcrResult
+from ocr_interfaces.srv import RecognizeText
 
 
 class OcrNode(Node):
-    """ROS2 node that runs PaddleOCR on incoming camera frames."""
+    """ROS2 node that caches camera frames and runs PaddleOCR on demand."""
 
     def __init__(self):
         super().__init__('ocr_node')
@@ -42,32 +48,33 @@ class OcrNode(Node):
         self.declare_parameter('conf_threshold', 0.5)
         self.declare_parameter('processing_interval', 0.5)
         self.declare_parameter('enable_annotated_img', True)
+        self.declare_parameter('enable_streaming', False)
 
         self._lang = self.get_parameter('lang').value
         self._use_gpu = self.get_parameter('use_gpu').value
         self._conf_threshold = self.get_parameter('conf_threshold').value
         self._interval = self.get_parameter('processing_interval').value
         self._publish_annotated = self.get_parameter('enable_annotated_img').value
+        self._streaming = self.get_parameter('enable_streaming').value
 
-        self.get_logger().info(
-            f'Initializing PaddleOCR (lang={self._lang}, gpu={self._use_gpu})...'
-        )
-
-        # ---- Lazy-import PaddleOCR (survives missing package until first frame) ----
+        # ---- PaddleOCR (lazy-init on first use) ----
         self._ocr = None
         self._ocr_lock = threading.Lock()
-        try:
-            self._init_ocr()
-        except Exception as e:
-            self.get_logger().warn(
-                f'PaddleOCR not available yet: {e}. '
-                'Will retry on first frame.'
-            )
+
+        self.get_logger().info(
+            f'OCR node starting (lang={self._lang}, gpu={self._use_gpu}, '
+            f'streaming={self._streaming})'
+        )
 
         # ---- CV Bridge ----
         self._bridge = CvBridge()
 
-        # ---- Subscriber ----
+        # ---- Latest-frame cache (always updated) ----
+        self._latest_frame = None          # cv::Mat (BGR8)
+        self._latest_header = None         # std_msgs/Header
+        self._frame_lock = threading.Lock()
+
+        # ---- Subscriber (always on — cache every frame for service use) ----
         self._sub = self.create_subscription(
             Image,
             '/hk_camera/image_raw',
@@ -75,30 +82,40 @@ class OcrNode(Node):
             10,
         )
 
-        # ---- Publishers ----
-        self._result_pub = self.create_publisher(OcrResult, '/ocr/result', 10)
+        # ---- Streaming-mode publishers (only when enable_streaming) ----
+        self._result_pub = None
         self._annotated_pub = None
-        if self._publish_annotated:
-            self._annotated_pub = self.create_publisher(Image, '/ocr/annotated_img', 10)
+        if self._streaming:
+            self._result_pub = self.create_publisher(OcrResult, '/ocr/result', 10)
+            if self._publish_annotated:
+                self._annotated_pub = self.create_publisher(Image, '/ocr/annotated_img', 10)
 
-        # ---- Processing throttle ----
+        # ---- Streaming throttle ----
         self._last_time = 0.0
         self._processing = False
-        self._frame_count = 0
 
-        self.get_logger().info(
-            'OCR Node ready. '
-            f'Listening on /hk_camera/image_raw, '
-            f'interval={self._interval}s'
+        # ---- Service: on-demand recognition ----
+        # Use a separate callback group to avoid deadlocks with the subscriber.
+        self._srv_group = MutuallyExclusiveCallbackGroup()
+        self._recognize_srv = self.create_service(
+            RecognizeText,
+            '/ocr/recognize',
+            self._handle_recognize,
+            callback_group=self._srv_group,
         )
 
-    # ------------------------------------------------------------------
+        mode_desc = 'streaming + service' if self._streaming else 'service-only'
+        self.get_logger().info(f'OCR Node ready [{mode_desc}]')
+
+    # ==================================================================
+    #  PaddleOCR lifecycle
+    # ==================================================================
+
     def _init_ocr(self):
         """Create the PaddleOCR instance (call with lock held)."""
-        import paddleocr  # noqa: F401 — verify availability
+        import paddleocr  # noqa: F401
         from paddleocr import PaddleOCR
 
-        # Suppress PaddleOCR's own debug logs
         self._ocr = PaddleOCR(
             lang=self._lang,
             use_gpu=self._use_gpu,
@@ -108,66 +125,74 @@ class OcrNode(Node):
             f'PaddleOCR initialized (lang={self._lang}, gpu={self._use_gpu})'
         )
 
-    # ------------------------------------------------------------------
+    def _ensure_ocr(self):
+        """Return the PaddleOCR instance; lazy-init on first call if needed."""
+        if self._ocr is not None:
+            return self._ocr
+        with self._ocr_lock:
+            if self._ocr is None:
+                self._init_ocr()
+        return self._ocr
+
+    # ==================================================================
+    #  Frame caching (always active)
+    # ==================================================================
+
     def _image_callback(self, msg: Image):
-        """ROS subscriber callback — throttle and dispatch to worker thread."""
-        now = time.time()
-        if now - self._last_time < self._interval:
-            return               # skip — not yet time for next frame
-        if self._processing:
-            return               # skip — still working on previous frame
-        self._last_time = now
-        self._processing = True
-        self._frame_count += 1
-
-        t = threading.Thread(target=self._process_frame, args=(msg,), daemon=True)
-        t.start()
-
-    # ------------------------------------------------------------------
-    def _process_frame(self, msg: Image):
-        """Decode image, run OCR, publish results (runs in worker thread)."""
+        """Always cache the latest frame. Optionally trigger streaming OCR."""
+        # Decode and cache the latest frame (always)
         try:
-            cv_image = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
+            frame = self._bridge.imgmsg_to_cv2(msg, 'bgr8')
         except Exception as exc:
             self.get_logger().error(f'cv_bridge conversion failed: {exc}')
-            self._processing = False
             return
+        with self._frame_lock:
+            self._latest_frame = frame
+            self._latest_header = msg.header
 
-        # ---- Lazy-init OCR on first frame if it failed at startup ----
-        if self._ocr is None:
-            with self._ocr_lock:
-                if self._ocr is None:
-                    try:
-                        self._init_ocr()
-                    except Exception as exc:
-                        self.get_logger().error(
-                            f'Cannot initialize PaddleOCR: {exc}'
-                        )
-                        self._processing = False
-                        return
+        # Streaming mode: throttle and dispatch
+        if not self._streaming:
+            return
+        now = time.time()
+        if now - self._last_time < self._interval:
+            return
+        if self._processing:
+            return
+        self._last_time = now
+        self._processing = True
+        t = threading.Thread(target=self._process_streaming_frame, args=(frame, msg.header), daemon=True)
+        t.start()
 
-        # ---- Run OCR ----
+    # ==================================================================
+    #  Core OCR inference (shared by streaming and service)
+    # ==================================================================
+
+    def _run_ocr(self, cv_image, conf_threshold=None):
+        """Run PaddleOCR on a single BGR8 image.
+
+        Args:
+            cv_image: BGR8 OpenCV Mat.
+            conf_threshold: override confidence threshold (None = use default).
+
+        Returns:
+            (detections: list[OcrDetection], proc_ms: float, annotated: cv::Mat)
+        """
+        ocr = self._ensure_ocr()
+        threshold = conf_threshold if conf_threshold and conf_threshold > 0.0 else self._conf_threshold
+
         t0 = time.time()
-        try:
-            raw = self._ocr.ocr(cv_image)
-        except Exception as exc:
-            self.get_logger().error(f'PaddleOCR inference error: {exc}')
-            self._processing = False
-            return
+        raw = ocr.ocr(cv_image)
         proc_ms = (time.time() - t0) * 1000.0
 
-        # ---- Build result message ----
-        result = OcrResult()
-        result.header = msg.header
-        result.processing_time_ms = float(proc_ms)
-
+        annotated = cv_image.copy()
         detections = []
+
         if raw and raw[0]:
             for line in raw[0]:
                 box = line[0]          # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
                 text, conf = line[1]
 
-                if conf < self._conf_threshold:
+                if conf < threshold:
                     continue
 
                 d = OcrDetection()
@@ -176,12 +201,12 @@ class OcrNode(Node):
                 d.confidence = float(conf)
                 detections.append(d)
 
-                # ---- Draw on preview image ----
+                # Draw on annotated image
                 pts = np.array([[int(p[0]), int(p[1])] for p in box], dtype=np.int32)
                 hull = cv2.convexHull(pts)
-                cv2.polylines(cv_image, [hull], isClosed=True, color=(0, 255, 0), thickness=2)
+                cv2.polylines(annotated, [hull], isClosed=True, color=(0, 255, 0), thickness=2)
                 cv2.putText(
-                    cv_image, f'{text} ({conf:.2f})',
+                    annotated, f'{text} ({conf:.2f})',
                     org=(int(box[0][0]), max(int(box[0][1]) - 8, 10)),
                     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                     fontScale=0.5,
@@ -189,26 +214,93 @@ class OcrNode(Node):
                     thickness=1,
                 )
 
-        result.detections = detections
-        self._result_pub.publish(result)
+        return detections, proc_ms, annotated
 
-        # ---- Publish annotated image ----
+    # ==================================================================
+    #  Streaming mode
+    # ==================================================================
+
+    def _process_streaming_frame(self, cv_image, header):
+        """Run OCR on a streaming frame and publish results."""
+        try:
+            detections, proc_ms, annotated = self._run_ocr(cv_image)
+        except Exception as exc:
+            self.get_logger().error(f'PaddleOCR streaming error: {exc}')
+            self._processing = False
+            return
+
+        # Publish structured result
+        if self._result_pub is not None:
+            result = OcrResult()
+            result.header = header
+            result.processing_time_ms = float(proc_ms)
+            result.detections = detections
+            self._result_pub.publish(result)
+
+        # Publish annotated preview
         if self._annotated_pub is not None:
-            ann_msg = self._bridge.cv2_to_imgmsg(cv_image, 'bgr8')
-            ann_msg.header = msg.header
+            ann_msg = self._bridge.cv2_to_imgmsg(annotated, 'bgr8')
+            ann_msg.header = header
             self._annotated_pub.publish(ann_msg)
 
         if detections:
             texts = ', '.join(d.text for d in detections[:5])
             if len(detections) > 5:
                 texts += '...'
-            self.get_logger().info(
-                f'[{proc_ms:.0f}ms] {len(detections)} text(s): {texts}'
-            )
+            self.get_logger().info(f'[stream][{proc_ms:.0f}ms] {len(detections)} text(s): {texts}')
         else:
-            self.get_logger().debug(f'[{proc_ms:.0f}ms] no text detected')
+            self.get_logger().debug(f'[stream][{proc_ms:.0f}ms] no text detected')
 
         self._processing = False
+
+    # ==================================================================
+    #  Service mode — /ocr/recognize
+    # ==================================================================
+
+    def _handle_recognize(self, request, response):
+        """Service callback: grab the latest cached frame and run OCR.
+
+        This blocks the caller until recognition completes (~100-500ms
+        depending on hardware).  If no frame has been received yet the
+        call returns success=false immediately.
+        """
+        # Grab the latest frame
+        with self._frame_lock:
+            if self._latest_frame is None:
+                response.success = False
+                response.message = 'No frame received yet — is hk_camera running?'
+                self.get_logger().warn(response.message)
+                return response
+            frame = self._latest_frame.copy()
+            header = self._latest_header
+
+        # Run OCR (blocks until done)
+        try:
+            detections, proc_ms, _ = self._run_ocr(
+                frame,
+                conf_threshold=request.conf_threshold,
+            )
+        except Exception as exc:
+            response.success = False
+            response.message = f'OCR inference failed: {exc}'
+            self.get_logger().error(response.message)
+            return response
+
+        # Fill response
+        response.success = True
+        response.message = (
+            f'OK: {len(detections)} text(s) in {proc_ms:.0f}ms'
+        )
+        response.detections = detections
+        response.processing_time_ms = float(proc_ms)
+
+        if detections:
+            texts = ', '.join(d.text for d in detections[:5])
+            self.get_logger().info(f'[service][{proc_ms:.0f}ms] {texts}')
+        else:
+            self.get_logger().info(f'[service][{proc_ms:.0f}ms] no text')
+
+        return response
 
 
 # ----------------------------------------------------------------------

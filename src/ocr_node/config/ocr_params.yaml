@@ -12,10 +12,15 @@ ocr_node:
     # Detections below this score are filtered out
     conf_threshold: 0.5
 
-    # Minimum interval in seconds between OCR runs
-    # Higher values reduce CPU/GPU load but may miss frames
-    # 0.5 = run at most 2 FPS, 1.0 = 1 FPS
+    # --- Streaming mode (continuous recognition) ---
+    # Set to true to continuously run OCR at processing_interval.
+    # Set to false for service-only mode (on-demand via /ocr/recognize).
+    enable_streaming: false
+
+    # Minimum interval in seconds between streaming OCR runs
+    # (only used when enable_streaming: true)
     processing_interval: 0.5
 
     # Publish annotated image with bounding boxes on /ocr/annotated_img
+    # (only used when enable_streaming: true)
     enable_annotated_img: true
