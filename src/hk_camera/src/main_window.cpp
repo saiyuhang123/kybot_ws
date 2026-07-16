@@ -18,8 +18,8 @@ MainWindow::MainWindow(QWidget* parent)
     setupUI();
     setupConnections();
 
-    setWindowTitle("海康相机控制台 — ROS2 + Qt5");
-    resize(960, 680);
+    setWindowTitle("海康相机控制台");
+    resize(900, 520);
 }
 
 MainWindow::~MainWindow()
@@ -37,95 +37,117 @@ void MainWindow::setupUI()
     auto* central = new QWidget(this);
     setCentralWidget(central);
     auto* main_layout = new QHBoxLayout(central);
+    main_layout->setContentsMargins(4, 4, 4, 4);
+    main_layout->setSpacing(4);
 
     // ---- 左侧: 预览 + 状态 ----
     auto* left_widget = new QWidget();
     auto* left_layout  = new QVBoxLayout(left_widget);
+    left_layout->setContentsMargins(0, 0, 0, 0);
 
-    // 视频预览区
     video_label_ = new QLabel("等待视频流...");
-    video_label_->setMinimumSize(480, 360);
+    video_label_->setMinimumSize(320, 240);
     video_label_->setAlignment(Qt::AlignCenter);
+    video_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     video_label_->setStyleSheet(
         "QLabel { background-color: #1a1a1a; color: #888; "
         "border: 2px solid #555; border-radius: 4px; }");
     left_layout->addWidget(video_label_);
 
-    // 状态栏
-    status_label_ = new QLabel("设备状态: 未连接");
-    status_label_->setStyleSheet("QLabel { color: #ff6600; font-weight: bold; }");
+    status_label_ = new QLabel("● 未连接");
+    status_label_->setStyleSheet("QLabel { color: #ff6600; font-weight: bold; padding: 2px; }");
     left_layout->addWidget(status_label_);
 
     main_layout->addWidget(left_widget, 2);
 
-    // ---- 右侧: 控制面板 (两列布局节省纵向空间) ----
-    auto* right_widget = new QWidget();
-    auto* right_layout  = new QGridLayout(right_widget);
-    right_widget->setMaximumWidth(500);
+    // ---- 右侧: 控制面板 (可滚动) ----
+    auto* scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setMaximumWidth(480);
+    scroll->setMinimumWidth(380);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
-    // 登录组
+    auto* right_widget = new QWidget();
+    auto* right_layout = new QVBoxLayout(right_widget);
+    right_layout->setContentsMargins(2, 2, 2, 2);
+    right_layout->setSpacing(4);
+
+    // ---- 1. 登录 (紧凑表单) ----
     login_group_ = new QGroupBox("设备登录");
-    auto* login_layout = new QVBoxLayout(login_group_);
+    auto* login_layout = new QGridLayout(login_group_);
+    login_layout->setSpacing(2);
 
     ip_edit_   = new QLineEdit("192.168.1.64");
     port_edit_ = new QLineEdit("8000");
     user_edit_ = new QLineEdit("admin");
     pass_edit_ = new QLineEdit("a1234567");
     pass_edit_->setEchoMode(QLineEdit::Password);
+    ip_edit_->setMaximumHeight(26);   port_edit_->setMaximumHeight(26);
+    user_edit_->setMaximumHeight(26); pass_edit_->setMaximumHeight(26);
+    port_edit_->setMaximumWidth(60);
 
-    login_btn_  = new QPushButton("登 录");
-    logout_btn_ = new QPushButton("登 出");
+    login_btn_  = new QPushButton("登录");
+    logout_btn_ = new QPushButton("登出");
     logout_btn_->setEnabled(false);
+    login_btn_->setMaximumHeight(26);  logout_btn_->setMaximumHeight(26);
 
-    login_layout->addWidget(new QLabel("IP地址:"));
-    login_layout->addWidget(ip_edit_);
-    login_layout->addWidget(new QLabel("端口:"));
-    login_layout->addWidget(port_edit_);
-    login_layout->addWidget(new QLabel("用户名:"));
-    login_layout->addWidget(user_edit_);
-    login_layout->addWidget(new QLabel("密码:"));
-    login_layout->addWidget(pass_edit_);
-    login_layout->addWidget(login_btn_);
-    login_layout->addWidget(logout_btn_);
+    login_layout->addWidget(new QLabel("IP:"),   0, 0);
+    login_layout->addWidget(ip_edit_,             0, 1, 1, 3);
+    login_layout->addWidget(new QLabel("端口:"),  0, 4);
+    login_layout->addWidget(port_edit_,           0, 5);
+    login_layout->addWidget(new QLabel("用户:"),  1, 0);
+    login_layout->addWidget(user_edit_,           1, 1);
+    login_layout->addWidget(new QLabel("密码:"),  1, 2);
+    login_layout->addWidget(pass_edit_,           1, 3);
+    login_layout->addWidget(login_btn_,           1, 4);
+    login_layout->addWidget(logout_btn_,          1, 5);
 
-    right_layout->addWidget(login_group_, 0, 0);
+    right_layout->addWidget(login_group_);
 
-    // 取流组
+    // ---- 2. 视频控制 (单行) ----
     stream_group_ = new QGroupBox("视频控制");
-    auto* stream_layout = new QVBoxLayout(stream_group_);
+    auto* stream_layout = new QHBoxLayout(stream_group_);
+    stream_layout->setSpacing(3);
 
     channel_combo_ = new QComboBox();
     for (int i = 1; i <= 16; i++)
-        channel_combo_->addItem(QString("通道 %1").arg(i), i);
+        channel_combo_->addItem(QString("通道%1").arg(i), i);
+    channel_combo_->setMaximumWidth(70);
 
-    start_stream_btn_ = new QPushButton("开始取流");
-    stop_stream_btn_  = new QPushButton("停止取流");
-    snapshot_btn_     = new QPushButton("快照模式 (1Hz 低CPU)");
-    capture_btn_      = new QPushButton("抓 图");
+    start_stream_btn_ = new QPushButton("取流");
+    stop_stream_btn_  = new QPushButton("停止");
+    snapshot_btn_     = new QPushButton("快照");
+    capture_btn_      = new QPushButton("抓图");
     start_stream_btn_->setEnabled(false);
     stop_stream_btn_->setEnabled(false);
     snapshot_btn_->setEnabled(false);
     capture_btn_->setEnabled(false);
     snapshot_btn_->setCheckable(true);
+    for (auto* b : {start_stream_btn_, stop_stream_btn_, snapshot_btn_, capture_btn_})
+        b->setMaximumHeight(26);
 
-    stream_layout->addWidget(new QLabel("通道选择:"));
     stream_layout->addWidget(channel_combo_);
     stream_layout->addWidget(start_stream_btn_);
     stream_layout->addWidget(stop_stream_btn_);
     stream_layout->addWidget(snapshot_btn_);
     stream_layout->addWidget(capture_btn_);
 
-    right_layout->addWidget(stream_group_, 0, 1);
+    right_layout->addWidget(stream_group_);
 
-    // 云台控制组
-    ptz_group_ = new QGroupBox("云台控制");
+    // ---- 3. 云台 + 镜头控制 (合并) ----
+    ptz_group_ = new QGroupBox("云台 / 镜头");
     auto* ptz_layout = new QGridLayout(ptz_group_);
+    ptz_layout->setSpacing(2);
+    ptz_layout->setContentsMargins(4, 4, 4, 4);
 
-    ptz_up_btn_    = new QPushButton("▲ 上");
-    ptz_down_btn_  = new QPushButton("▼ 下");
-    ptz_left_btn_  = new QPushButton("◄ 左");
-    ptz_right_btn_ = new QPushButton("右 ►");
-    ptz_stop_btn_  = new QPushButton("■ 停");
+    // 方向键 (第一行)
+    ptz_up_btn_    = new QPushButton("▲");
+    ptz_down_btn_  = new QPushButton("▼");
+    ptz_left_btn_  = new QPushButton("◄");
+    ptz_right_btn_ = new QPushButton("►");
+    ptz_stop_btn_  = new QPushButton("■");
+    for (auto* b : {ptz_up_btn_, ptz_down_btn_, ptz_left_btn_, ptz_right_btn_, ptz_stop_btn_})
+        { b->setMaximumHeight(28); b->setMaximumWidth(50); }
 
     ptz_layout->addWidget(ptz_up_btn_,    0, 1);
     ptz_layout->addWidget(ptz_left_btn_,   1, 0);
@@ -135,139 +157,150 @@ void MainWindow::setupUI()
 
     // 变倍
     auto* zoom_layout = new QHBoxLayout();
-    zoom_in_btn_  = new QPushButton("+ 放大");
-    zoom_out_btn_ = new QPushButton("- 缩小");
+    zoom_layout->setSpacing(2);
+    zoom_in_btn_  = new QPushButton("放大+");
+    zoom_out_btn_ = new QPushButton("缩小-");
+    for (auto* b : {zoom_in_btn_, zoom_out_btn_}) b->setMaximumHeight(26);
     zoom_layout->addWidget(zoom_in_btn_);
     zoom_layout->addWidget(zoom_out_btn_);
-    ptz_layout->addLayout(zoom_layout, 3, 0, 1, 3);
+    ptz_layout->addLayout(zoom_layout, 0, 3, 1, 2);
 
-    // 聚焦控制
-    auto* focus_label = new QLabel("聚焦:");
-    focus_label->setAlignment(Qt::AlignCenter);
-    focus_label->setStyleSheet("QLabel { color: #aaa; font-weight: bold; }");
-    ptz_layout->addWidget(focus_label, 4, 0, 1, 3);
+    // 聚焦按钮
+    auto* focus_btn_layout = new QHBoxLayout();
+    focus_btn_layout->setSpacing(2);
+    focus_near_btn_ = new QPushButton("近焦");
+    focus_far_btn_  = new QPushButton("远焦");
+    for (auto* b : {focus_near_btn_, focus_far_btn_}) b->setMaximumHeight(26);
+    focus_btn_layout->addWidget(focus_near_btn_);
+    focus_btn_layout->addWidget(focus_far_btn_);
+    ptz_layout->addLayout(focus_btn_layout, 1, 3, 1, 2);
 
-    auto* focus_layout = new QHBoxLayout();
-    focus_near_btn_ = new QPushButton("◀ 近焦");
-    focus_far_btn_  = new QPushButton("远焦 ▶");
-    focus_near_btn_->setToolTip("手动往近处调焦");
-    focus_far_btn_->setToolTip("手动往远处调焦");
-    focus_layout->addWidget(focus_near_btn_);
-    focus_layout->addWidget(focus_far_btn_);
-    ptz_layout->addLayout(focus_layout, 5, 0, 1, 3);
-
-    // 自动聚焦 + 聚焦位置滑块
-    auto_focus_btn_ = new QPushButton("🔍 自动聚焦");
+    // 自动聚焦按钮
+    auto_focus_btn_ = new QPushButton("自动聚焦");
+    auto_focus_btn_->setMaximumHeight(26);
     auto_focus_btn_->setStyleSheet(
-        "QPushButton { background-color: #2e7d32; color: white; font-weight: bold; "
-        "border-radius: 3px; }"
+        "QPushButton { background-color: #2e7d32; color: white; font-weight: bold; }"
         "QPushButton:hover { background-color: #388e3c; }"
         "QPushButton:disabled { background-color: #555; }");
-    ptz_layout->addWidget(auto_focus_btn_, 6, 0, 1, 3);
+    ptz_layout->addWidget(auto_focus_btn_, 2, 3, 1, 2);
 
+    // 聚焦位置滑块 (紧凑)
     auto* focus_pos_layout = new QHBoxLayout();
-    focus_pos_layout->addWidget(new QLabel("位置:"));
+    focus_pos_layout->setSpacing(2);
     focus_pos_slider_ = new QSlider(Qt::Horizontal);
-    focus_pos_slider_->setRange(0x1000, 0xC000);  // SDK 聚焦值范围
-    focus_pos_slider_->setValue(0x6000);           // 默认中间值
+    focus_pos_slider_->setRange(0x1000, 0xC000);
+    focus_pos_slider_->setValue(0x6000);
     focus_pos_slider_->setToolTip("手动聚焦位置 (0x1000~0xC000)");
+    focus_pos_slider_->setMaximumHeight(22);
     focus_pos_label_ = new QLabel("0x6000");
-    focus_pos_label_->setMinimumWidth(55);
+    focus_pos_label_->setMinimumWidth(48);
+    focus_pos_label_->setMaximumHeight(22);
+    manual_focus_set_btn_ = new QPushButton("应用");
+    manual_focus_set_btn_->setMaximumHeight(22);
+    manual_focus_set_btn_->setMaximumWidth(50);
     focus_pos_layout->addWidget(focus_pos_slider_);
     focus_pos_layout->addWidget(focus_pos_label_);
-    ptz_layout->addLayout(focus_pos_layout, 7, 0, 1, 3);
+    focus_pos_layout->addWidget(manual_focus_set_btn_);
+    ptz_layout->addLayout(focus_pos_layout, 3, 0, 1, 5);
 
-    manual_focus_set_btn_ = new QPushButton("✓ 应用手动聚焦");
-    manual_focus_set_btn_->setToolTip("将滑块值写入设备，切换到手动模式");
-    ptz_layout->addWidget(manual_focus_set_btn_, 8, 0, 1, 3);
-
-    // 预置点
+    // 预置点 (紧凑单行)
     auto* preset_layout = new QHBoxLayout();
+    preset_layout->setSpacing(2);
     preset_spin_      = new QSpinBox();
-    preset_set_btn_   = new QPushButton("设置");
-    preset_goto_btn_  = new QPushButton("调用");
-    preset_clear_btn_ = new QPushButton("清除");
+    preset_set_btn_   = new QPushButton("设");
+    preset_goto_btn_  = new QPushButton("调");
+    preset_clear_btn_ = new QPushButton("清");
     preset_spin_->setRange(1, 256);
     preset_spin_->setValue(1);
-    preset_spin_->setToolTip("预置点编号");
+    preset_spin_->setMaximumHeight(24);
+    preset_spin_->setMaximumWidth(55);
+    for (auto* b : {preset_set_btn_, preset_goto_btn_, preset_clear_btn_})
+        { b->setMaximumHeight(24); b->setMaximumWidth(35); }
     preset_layout->addWidget(new QLabel("预置点:"));
     preset_layout->addWidget(preset_spin_);
     preset_layout->addWidget(preset_set_btn_);
     preset_layout->addWidget(preset_goto_btn_);
     preset_layout->addWidget(preset_clear_btn_);
-    ptz_layout->addLayout(preset_layout, 9, 0, 1, 3);
+    preset_layout->addStretch();
+    ptz_layout->addLayout(preset_layout, 4, 0, 1, 5);
 
     ptz_group_->setEnabled(false);
-    right_layout->addWidget(ptz_group_, 1, 0);
+    right_layout->addWidget(ptz_group_);
 
-    // 巡航控制组
+    // ---- 4. 巡航 (紧凑) ----
     cruise_group_ = new QGroupBox("预置点巡航");
-    auto* cruise_layout = new QVBoxLayout(cruise_group_);
+    auto* cruise_layout = new QHBoxLayout(cruise_group_);
+    cruise_layout->setSpacing(3);
 
-    auto* presets_row = new QHBoxLayout();
-    presets_row->addWidget(new QLabel("预置点序列:"));
+    cruise_layout->addWidget(new QLabel("序列:"));
     cruise_presets_edit_ = new QLineEdit("1");
     cruise_presets_edit_->setToolTip("逗号分隔, 例如: 1,3,5,7");
-    presets_row->addWidget(cruise_presets_edit_);
-    cruise_layout->addLayout(presets_row);
-
-    auto* dwell_row = new QHBoxLayout();
-    dwell_row->addWidget(new QLabel("驻留时间:"));
+    cruise_presets_edit_->setMaximumHeight(26);
+    cruise_presets_edit_->setMaximumWidth(80);
+    cruise_layout->addWidget(cruise_presets_edit_);
+    cruise_layout->addWidget(new QLabel("驻留:"));
     cruise_dwell_spin_ = new QSpinBox();
     cruise_dwell_spin_->setRange(1, 60);
     cruise_dwell_spin_->setValue(5);
-    cruise_dwell_spin_->setSuffix(" 秒");
-    dwell_row->addWidget(cruise_dwell_spin_);
-    dwell_row->addStretch();
-    cruise_layout->addLayout(dwell_row);
-
-    auto* cruise_btn_row = new QHBoxLayout();
-    cruise_start_btn_ = new QPushButton("▶ 开始巡航");
-    cruise_stop_btn_  = new QPushButton("■ 停止");
+    cruise_dwell_spin_->setSuffix("秒");
+    cruise_dwell_spin_->setMaximumHeight(26);
+    cruise_dwell_spin_->setMaximumWidth(65);
+    cruise_layout->addWidget(cruise_dwell_spin_);
+    cruise_start_btn_ = new QPushButton("▶");
+    cruise_stop_btn_  = new QPushButton("■");
     cruise_stop_btn_->setEnabled(false);
-    cruise_btn_row->addWidget(cruise_start_btn_);
-    cruise_btn_row->addWidget(cruise_stop_btn_);
-    cruise_layout->addLayout(cruise_btn_row);
+    cruise_start_btn_->setMaximumHeight(26); cruise_start_btn_->setMaximumWidth(36);
+    cruise_stop_btn_->setMaximumHeight(26);  cruise_stop_btn_->setMaximumWidth(36);
+    cruise_layout->addWidget(cruise_start_btn_);
+    cruise_layout->addWidget(cruise_stop_btn_);
+    cruise_layout->addStretch();
 
     cruise_group_->setEnabled(false);
-    right_layout->addWidget(cruise_group_, 1, 1);
+    right_layout->addWidget(cruise_group_);
 
-    // OCR 识别组
+    // ---- 5. OCR (紧凑) ----
     ocr_group_ = new QGroupBox("OCR 文字识别");
     auto* ocr_layout = new QVBoxLayout(ocr_group_);
+    ocr_layout->setSpacing(3);
 
-    ocr_btn_ = new QPushButton("🔍 识别当前画面");
-    ocr_btn_->setMinimumHeight(36);
+    auto* ocr_btn_row = new QHBoxLayout();
+    ocr_btn_ = new QPushButton("识别当前画面");
+    ocr_btn_->setMaximumHeight(28);
     ocr_btn_->setStyleSheet(
-        "QPushButton { background-color: #1a6fb5; color: white; font-weight: bold; "
-        "border-radius: 4px; font-size: 14px; }"
+        "QPushButton { background-color: #1a6fb5; color: white; font-weight: bold; }"
         "QPushButton:hover { background-color: #2088d0; }"
         "QPushButton:disabled { background-color: #555; }");
-    ocr_layout->addWidget(ocr_btn_);
-
     ocr_status_label_ = new QLabel("就绪");
     ocr_status_label_->setStyleSheet("QLabel { color: #888; }");
-    ocr_layout->addWidget(ocr_status_label_);
+    ocr_btn_row->addWidget(ocr_btn_);
+    ocr_btn_row->addWidget(ocr_status_label_);
+    ocr_layout->addLayout(ocr_btn_row);
 
     ocr_result_edit_ = new QTextEdit();
     ocr_result_edit_->setReadOnly(true);
-    ocr_result_edit_->setMaximumHeight(120);
-    ocr_result_edit_->setPlaceholderText("识别结果将显示在这里...");
+    ocr_result_edit_->setMaximumHeight(80);
+    ocr_result_edit_->setPlaceholderText("识别结果...");
+    ocr_result_edit_->setFont(QFont("monospace", 9));
     ocr_layout->addWidget(ocr_result_edit_);
 
-    ocr_group_->setEnabled(false);  // 登录后才能使用
-    right_layout->addWidget(ocr_group_, 2, 0);
+    ocr_group_->setEnabled(false);
+    right_layout->addWidget(ocr_group_);
 
-    // 日志组
-    auto* log_group = new QGroupBox("运行日志");
+    // ---- 6. 日志 (可折叠高度) ----
+    auto* log_group = new QGroupBox("日志");
     auto* log_layout = new QVBoxLayout(log_group);
+    log_layout->setContentsMargins(2, 2, 2, 2);
     log_edit_ = new QTextEdit();
     log_edit_->setReadOnly(true);
-    log_edit_->setMaximumHeight(150);
+    log_edit_->setMaximumHeight(100);
+    log_edit_->setFont(QFont("monospace", 8));
     log_layout->addWidget(log_edit_);
 
-    right_layout->addWidget(log_group, 3, 0, 1, 2);  // 跨两列
-    main_layout->addWidget(right_widget);
+    right_layout->addWidget(log_group);
+
+    // 右侧放入滚动区域
+    scroll->setWidget(right_widget);
+    main_layout->addWidget(scroll);
 }
 
 // ============================================================
@@ -507,7 +540,7 @@ void MainWindow::onSnapshotTick()
             video_label_->setPixmap(
                 pix.scaled(video_label_->size(),
                            Qt::KeepAspectRatio,
-                           Qt::SmoothTransformation));
+                           Qt::FastTransformation));
         }
     }
 }
@@ -712,12 +745,16 @@ void MainWindow::onCruiseStop()
 void MainWindow::onDecodedImage(const QImage& image)
 {
     if (image.isNull()) return;
+
+    // 快速缩放显示: FastTransformation 用最近邻插值 (CPU 开销远低于 SmoothTransformation)
     video_label_->setPixmap(
         QPixmap::fromImage(image).scaled(
-            video_label_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            video_label_->size(), Qt::KeepAspectRatio, Qt::FastTransformation));
 
-    // 同步发布到 ROS /hk_camera/image_raw，供 ocr_node 等订阅
-    if (image_pub_)
+    // ROS 发布: 每 5 帧发一次, 避免每帧都做 format 转换 + 深拷贝
+    static int ros_skip = 0;
+    ros_skip++;
+    if (image_pub_ && (ros_skip % 5 == 0))
     {
         QImage rgb = image.convertToFormat(QImage::Format_RGB888);
         cv::Mat mat(rgb.height(), rgb.width(), CV_8UC3,
@@ -746,18 +783,18 @@ void MainWindow::updateStatus()
 {
     if (user_id_ >= 0 && decoder_->isRunning())
     {
-        status_label_->setText("设备状态: ● 取流中");
-        status_label_->setStyleSheet("QLabel { color: #00cc66; font-weight: bold; }");
+        status_label_->setText("● 取流中");
+        status_label_->setStyleSheet("QLabel { color: #00cc66; font-weight: bold; padding: 2px; }");
     }
     else if (user_id_ >= 0)
     {
-        status_label_->setText("设备状态: ● 已连接 (未取流)");
-        status_label_->setStyleSheet("QLabel { color: #ffaa00; font-weight: bold; }");
+        status_label_->setText("● 已连接");
+        status_label_->setStyleSheet("QLabel { color: #ffaa00; font-weight: bold; padding: 2px; }");
     }
     else
     {
-        status_label_->setText("设备状态: ● 未连接");
-        status_label_->setStyleSheet("QLabel { color: #ff6600; font-weight: bold; }");
+        status_label_->setText("● 未连接");
+        status_label_->setStyleSheet("QLabel { color: #ff6600; font-weight: bold; padding: 2px; }");
     }
 }
 
