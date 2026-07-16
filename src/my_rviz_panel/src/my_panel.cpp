@@ -5,6 +5,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QMetaObject>
+#include <QTimer>
 #include <fstream>
 #include <sstream>
 
@@ -288,6 +289,12 @@ void MyPanel::onStartMissionClicked() {
         return;
     }
 
+    // 先取消可能还在跑的旧导航
+    if (action_client_)
+        action_client_->async_cancel_all_goals();
+
+    btn_start_mission_->setEnabled(false);
+
     auto request = std::make_shared<hk_camera::srv::RunMission::Request>();
     for (const auto& mp : mission_points_) {
         hk_camera::msg::MissionWaypoint wp;
@@ -302,6 +309,11 @@ void MyPanel::onStartMissionClicked() {
 
     auto future = mission_client_->async_send_request(request);
     status_label_->setText("Status: Starting mission...");
+
+    // 延迟重新启用按钮
+    QTimer::singleShot(3000, this, [this]() {
+        btn_start_mission_->setEnabled(true);
+    });
 }
 
 void MyPanel::onCancelMissionClicked() {

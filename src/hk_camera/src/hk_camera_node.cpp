@@ -305,7 +305,7 @@ void HKCameraNode::onCapturePicture(
     std::string path = req->save_path;
     if (path.empty())
     {
-        path = "/home/nvidia/kybot_ws/src/hk_camera/pic_capture" +
+        path = "/home/nvidia/kybot_ws/src/hk_camera/pic_capture/" +
                std::to_string(now().nanoseconds()) + ".jpg";
     }
 
