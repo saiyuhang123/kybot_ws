@@ -27,6 +27,7 @@ find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(ocr_interfaces REQUIRED)
 
 
 # 自定义消息/服务
@@ -180,6 +181,7 @@ if(BUILD_HK_GUI)
     std_srvs
     cv_bridge
     OpenCV
+    ocr_interfaces
   )
 endif()
 

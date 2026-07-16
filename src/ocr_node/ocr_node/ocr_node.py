@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OCR Node — PaddleOCR text/number recognition for ROS2.
+OCR Node — EasyOCR text/number recognition for ROS2.
 
 Two usage modes (can coexist):
 
@@ -37,7 +37,7 @@ from ocr_interfaces.srv import RecognizeText
 
 
 class OcrNode(Node):
-    """ROS2 node that caches camera frames and runs PaddleOCR on demand."""
+    """ROS2 node that caches camera frames and runs EasyOCR on demand."""
 
     def __init__(self):
         super().__init__('ocr_node')
@@ -57,7 +57,7 @@ class OcrNode(Node):
         self._publish_annotated = self.get_parameter('enable_annotated_img').value
         self._streaming = self.get_parameter('enable_streaming').value
 
-        # ---- PaddleOCR (lazy-init on first use) ----
+        # ---- EasyOCR (lazy-init on first use) ----
         self._ocr = None
         self._ocr_lock = threading.Lock()
 
@@ -108,25 +108,29 @@ class OcrNode(Node):
         self.get_logger().info(f'OCR Node ready [{mode_desc}]')
 
     # ==================================================================
-    #  PaddleOCR lifecycle
+    #  EasyOCR lifecycle
     # ==================================================================
 
     def _init_ocr(self):
-        """Create the PaddleOCR instance (call with lock held)."""
-        import paddleocr  # noqa: F401
-        from paddleocr import PaddleOCR
+        """Create the EasyOCR reader (call with lock held)."""
+        import easyocr
 
-        self._ocr = PaddleOCR(
-            lang=self._lang,
-            use_gpu=self._use_gpu,
-            show_log=False,
+        # Map PaddleOCR-style lang to EasyOCR language list
+        if self._lang == 'ch':
+            lang_list = ['ch_sim', 'en']
+        else:
+            lang_list = [self._lang]
+
+        self._ocr = easyocr.Reader(
+            lang_list,
+            gpu=self._use_gpu,
         )
         self.get_logger().info(
-            f'PaddleOCR initialized (lang={self._lang}, gpu={self._use_gpu})'
+            f'EasyOCR initialized (lang={self._lang}, gpu={self._use_gpu})'
         )
 
     def _ensure_ocr(self):
-        """Return the PaddleOCR instance; lazy-init on first call if needed."""
+        """Return the EasyOCR reader; lazy-init on first call if needed."""
         if self._ocr is not None:
             return self._ocr
         with self._ocr_lock:
@@ -168,7 +172,7 @@ class OcrNode(Node):
     # ==================================================================
 
     def _run_ocr(self, cv_image, conf_threshold=None):
-        """Run PaddleOCR on a single BGR8 image.
+        """Run EasyOCR on a single BGR8 image.
 
         Args:
             cv_image: BGR8 OpenCV Mat.
@@ -181,38 +185,35 @@ class OcrNode(Node):
         threshold = conf_threshold if conf_threshold and conf_threshold > 0.0 else self._conf_threshold
 
         t0 = time.time()
-        raw = ocr.ocr(cv_image)
+        raw = ocr.readtext(cv_image)  # EasyOCR: [(bbox, text, confidence), ...]
         proc_ms = (time.time() - t0) * 1000.0
 
         annotated = cv_image.copy()
         detections = []
 
-        if raw and raw[0]:
-            for line in raw[0]:
-                box = line[0]          # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
-                text, conf = line[1]
+        for (box, text, conf) in raw:
+            # box = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+            if conf < threshold:
+                continue
 
-                if conf < threshold:
-                    continue
+            d = OcrDetection()
+            d.corners = [float(v) for p in box for v in p]
+            d.text = text
+            d.confidence = float(conf)
+            detections.append(d)
 
-                d = OcrDetection()
-                d.corners = [float(v) for p in box for v in p]
-                d.text = text
-                d.confidence = float(conf)
-                detections.append(d)
-
-                # Draw on annotated image
-                pts = np.array([[int(p[0]), int(p[1])] for p in box], dtype=np.int32)
-                hull = cv2.convexHull(pts)
-                cv2.polylines(annotated, [hull], isClosed=True, color=(0, 255, 0), thickness=2)
-                cv2.putText(
-                    annotated, f'{text} ({conf:.2f})',
-                    org=(int(box[0][0]), max(int(box[0][1]) - 8, 10)),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.5,
-                    color=(0, 255, 0),
-                    thickness=1,
-                )
+            # Draw on annotated image
+            pts = np.array([[int(p[0]), int(p[1])] for p in box], dtype=np.int32)
+            hull = cv2.convexHull(pts)
+            cv2.polylines(annotated, [hull], isClosed=True, color=(0, 255, 0), thickness=2)
+            cv2.putText(
+                annotated, f'{text} ({conf:.2f})',
+                org=(int(box[0][0]), max(int(box[0][1]) - 8, 10)),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.5,
+                color=(0, 255, 0),
+                thickness=1,
+            )
 
         return detections, proc_ms, annotated
 
@@ -225,7 +226,7 @@ class OcrNode(Node):
         try:
             detections, proc_ms, annotated = self._run_ocr(cv_image)
         except Exception as exc:
-            self.get_logger().error(f'PaddleOCR streaming error: {exc}')
+            self.get_logger().error(f'EasyOCR streaming error: {exc}')
             self._processing = False
             return
 

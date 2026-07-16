@@ -81,6 +81,10 @@ int main(int argc, char* argv[])
 
     // ==================== 4. 创建 Qt 主窗口 ====================
     MainWindow window;
+    if (enable_ros && g_node)
+    {
+        window.setRosNode(g_node);
+    }
     window.show();
 
     // ==================== 5. 信号处理 ====================

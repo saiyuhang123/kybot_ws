@@ -2,6 +2,10 @@
 #include <QDateTime>
 #include <QMessageBox>
 
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/opencv.hpp>
+#include <std_msgs/msg/header.hpp>
+
 namespace hk_camera
 {
 
@@ -188,6 +192,32 @@ void MainWindow::setupUI()
     cruise_group_->setEnabled(false);
     right_layout->addWidget(cruise_group_, 1, 1);
 
+    // OCR 识别组
+    ocr_group_ = new QGroupBox("OCR 文字识别");
+    auto* ocr_layout = new QVBoxLayout(ocr_group_);
+
+    ocr_btn_ = new QPushButton("🔍 识别当前画面");
+    ocr_btn_->setMinimumHeight(36);
+    ocr_btn_->setStyleSheet(
+        "QPushButton { background-color: #1a6fb5; color: white; font-weight: bold; "
+        "border-radius: 4px; font-size: 14px; }"
+        "QPushButton:hover { background-color: #2088d0; }"
+        "QPushButton:disabled { background-color: #555; }");
+    ocr_layout->addWidget(ocr_btn_);
+
+    ocr_status_label_ = new QLabel("就绪");
+    ocr_status_label_->setStyleSheet("QLabel { color: #888; }");
+    ocr_layout->addWidget(ocr_status_label_);
+
+    ocr_result_edit_ = new QTextEdit();
+    ocr_result_edit_->setReadOnly(true);
+    ocr_result_edit_->setMaximumHeight(120);
+    ocr_result_edit_->setPlaceholderText("识别结果将显示在这里...");
+    ocr_layout->addWidget(ocr_result_edit_);
+
+    ocr_group_->setEnabled(false);  // 登录后才能使用
+    right_layout->addWidget(ocr_group_, 2, 0);
+
     // 日志组
     auto* log_group = new QGroupBox("运行日志");
     auto* log_layout = new QVBoxLayout(log_group);
@@ -196,7 +226,7 @@ void MainWindow::setupUI()
     log_edit_->setMaximumHeight(150);
     log_layout->addWidget(log_edit_);
 
-    right_layout->addWidget(log_group, 2, 0, 1, 2);  // 跨两列
+    right_layout->addWidget(log_group, 3, 0, 1, 2);  // 跨两列
     main_layout->addWidget(right_widget);
 }
 
@@ -243,6 +273,9 @@ void MainWindow::setupConnections()
     // 巡航
     connect(cruise_start_btn_, &QPushButton::clicked, this, &MainWindow::onCruiseStart);
     connect(cruise_stop_btn_,  &QPushButton::clicked, this, &MainWindow::onCruiseStop);
+
+    // OCR
+    connect(ocr_btn_, &QPushButton::clicked, this, &MainWindow::onOcrRecognize);
 
     // 报警 + 错误
     connect(camera_, &HKCamera::alarmReceived,
@@ -578,6 +611,20 @@ void MainWindow::onDecodedImage(const QImage& image)
     video_label_->setPixmap(
         QPixmap::fromImage(image).scaled(
             video_label_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+
+    // 同步发布到 ROS /hk_camera/image_raw，供 ocr_node 等订阅
+    if (image_pub_)
+    {
+        QImage rgb = image.convertToFormat(QImage::Format_RGB888);
+        cv::Mat mat(rgb.height(), rgb.width(), CV_8UC3,
+                    const_cast<uint8_t*>(rgb.bits()),
+                    static_cast<size_t>(rgb.bytesPerLine()));
+        auto header = std_msgs::msg::Header();
+        header.stamp = ros_node_->now();
+        header.frame_id = "hk_camera";
+        auto img_msg = cv_bridge::CvImage(header, "rgb8", mat).toImageMsg();
+        image_pub_->publish(*img_msg);
+    }
 }
 
 void MainWindow::onAlarm(const AlarmEvent& alarm)
@@ -630,6 +677,108 @@ void MainWindow::setControlsEnabled(bool enabled)
     capture_btn_->setEnabled(enabled);
     ptz_group_->setEnabled(enabled);
     cruise_group_->setEnabled(enabled);
+    ocr_group_->setEnabled(enabled);
+}
+
+// ============================================================
+// OCR 识别
+// ============================================================
+
+void MainWindow::setRosNode(rclcpp::Node::SharedPtr node)
+{
+    ros_node_ = node;
+    if (ros_node_)
+    {
+        ocr_client_ = ros_node_->create_client<ocr_interfaces::srv::RecognizeText>(
+            "/ocr/recognize");
+        image_pub_ = ros_node_->create_publisher<sensor_msgs::msg::Image>(
+            "/hk_camera/image_raw", 10);
+        log("ROS bridge ready (/ocr/recognize + /hk_camera/image_raw)");
+    }
+}
+
+void MainWindow::onOcrRecognize()
+{
+    if (!ocr_client_)
+    {
+        ocr_status_label_->setText("⚠ ROS service client 未初始化");
+        ocr_status_label_->setStyleSheet("QLabel { color: #ff6600; }");
+        return;
+    }
+
+    if (!ocr_client_->wait_for_service(std::chrono::seconds(1)))
+    {
+        ocr_status_label_->setText("⚠ OCR 服务不可用，请先启动 ocr_node");
+        ocr_status_label_->setStyleSheet("QLabel { color: #ff6600; }");
+        log("OCR 服务 /ocr/recognize 不可用，请执行: ros2 launch ocr_node ocr_node.launch.py");
+        return;
+    }
+
+    ocr_btn_->setEnabled(false);
+    ocr_status_label_->setText("⏳ 正在识别...");
+    ocr_status_label_->setStyleSheet("QLabel { color: #ffaa00; }");
+    ocr_result_edit_->clear();
+
+    auto request = std::make_shared<ocr_interfaces::srv::RecognizeText::Request>();
+    request->conf_threshold = 0.0f;  // 使用 ocr_node 默认阈值
+
+    // 异步调用，不阻塞 GUI
+    auto future = ocr_client_->async_send_request(
+        request,
+        [this](rclcpp::Client<ocr_interfaces::srv::RecognizeText>::SharedFuture future)
+        {
+            // 此回调在 ROS spin 线程中执行，需要用 invokeMethod 切回 Qt 主线程更新 UI
+            auto response = future.get();
+            QMetaObject::invokeMethod(
+                this,
+                [this, response]()
+                {
+                    ocr_btn_->setEnabled(true);
+
+                    if (!response->success)
+                    {
+                        ocr_status_label_->setText(
+                            QString("✗ 识别失败: %1").arg(QString::fromStdString(response->message)));
+                        ocr_status_label_->setStyleSheet("QLabel { color: #ff3300; }");
+                        log(QString("OCR 失败: %1").arg(QString::fromStdString(response->message)));
+                        return;
+                    }
+
+                    double proc_ms = response->processing_time_ms;
+                    int count = response->detections.size();
+
+                    ocr_status_label_->setText(
+                        QString("✓ 识别完成: %1 条文字, %2 ms")
+                            .arg(count)
+                            .arg(proc_ms, 0, 'f', 0));
+                    ocr_status_label_->setStyleSheet("QLabel { color: #00cc66; font-weight: bold; }");
+
+                    // 格式化结果显示
+                    QString result_text;
+                    for (size_t i = 0; i < response->detections.size(); i++)
+                    {
+                        const auto& d = response->detections[i];
+                        result_text += QString("[%1] %2  (置信度: %3)\n")
+                            .arg(i + 1)
+                            .arg(QString::fromStdString(d.text))
+                            .arg(d.confidence, 0, 'f', 2);
+                    }
+                    ocr_result_edit_->setPlainText(result_text);
+
+                    // 日志
+                    log(QString("OCR: %1 条文字, %2 ms")
+                        .arg(count)
+                        .arg(proc_ms, 0, 'f', 0));
+                    for (size_t i = 0; i < response->detections.size() && i < 3; i++)
+                    {
+                        log(QString("  [%1] \"%2\" conf=%3")
+                            .arg(i + 1)
+                            .arg(QString::fromStdString(response->detections[i].text))
+                            .arg(response->detections[i].confidence, 0, 'f', 2));
+                    }
+                },
+                Qt::QueuedConnection);
+        });
 }
 
 } // namespace hk_camera

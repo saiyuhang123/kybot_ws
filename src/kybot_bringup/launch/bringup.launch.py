@@ -48,6 +48,10 @@ def generate_launch_description():
         "use_sim_time", default_value="false",
         description="是否使用仿真时间"
     )
+    declare_use_ocr = DeclareLaunchArgument(
+        "use_ocr", default_value="false",
+        description="是否启动海康相机 + OCR 识别"
+    )
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     # ========================
@@ -154,7 +158,8 @@ def generate_launch_description():
         parameters=[{"use_sim_time": use_sim_time}],
         arguments=[urdf_path],
     )
-# ========================
+
+    # ========================
     # 8. 静态 TF
     # ========================
     # base_link → laser_fe
@@ -210,7 +215,20 @@ def generate_launch_description():
     )
 
     # ========================
-    # 10. 定位 (FAST_LIO) — 单独窗口运行，避免刷屏
+    # 10. 海康相机 + OCR (可选)
+    # ========================
+    ocr_camera_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("kybot_bringup"),
+                "launch", "ocr_camera.launch.py"
+            )
+        ),
+        condition=IfCondition(LaunchConfiguration("use_ocr")),
+    )
+
+    # ========================
+    # 11. 定位 (FAST_LIO) — 单独窗口运行，避免刷屏
     # ========================
     fast_lio_terminal = ExecuteProcess(
         cmd=[
@@ -233,6 +251,7 @@ def generate_launch_description():
     ld.add_action(declare_setup_can)
     ld.add_action(declare_use_rviz)
     ld.add_action(declare_use_sim_time)
+    ld.add_action(declare_use_ocr)
 
     # CAN 配置
     ld.add_action(can_setup_bitrate)
@@ -252,5 +271,6 @@ def generate_launch_description():
     ld.add_action(TimerAction(period=14.0, actions=[imu_node]))
     ld.add_action(TimerAction(period=16.0, actions=[ekf_node]))
     ld.add_action(TimerAction(period=18.0, actions=[fast_lio_terminal]))
+    ld.add_action(TimerAction(period=20.0, actions=[ocr_camera_launch]))
 
     return ld

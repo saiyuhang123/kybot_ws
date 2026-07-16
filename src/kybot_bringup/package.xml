@@ -18,6 +18,8 @@
   <exec_depend>wit_ros2_imu</exec_depend>
   <exec_depend>yhs_can_control</exec_depend>
   <exec_depend>yhs_chassis_description</exec_depend>
+  <exec_depend>hk_camera</exec_depend>
+  <exec_depend>ocr_node</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
 

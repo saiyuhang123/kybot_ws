@@ -13,10 +13,16 @@
 #include <QGridLayout>
 #include <QSpinBox>
 #include <QTimer>
+#include <QScrollArea>
 #include <memory>
 
 #include "hk_camera/hk_camera.h"
 #include "hk_camera/hk_decoder.h"
+
+// ROS2 OCR service (optional — only when building with ROS)
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include "ocr_interfaces/srv/recognize_text.hpp"
 
 namespace hk_camera
 {
@@ -72,6 +78,13 @@ private slots:
     void onCruiseStop();
     void onCruiseTick();
 
+    // ---- OCR 识别 ----
+    void onOcrRecognize();
+
+public:
+    /// 注入 ROS2 节点指针（main.cpp 调用），用于 OCR service client
+    void setRosNode(rclcpp::Node::SharedPtr node);
+
 private:
     void setupUI();
     void setupConnections();
@@ -125,6 +138,18 @@ private:
     QTimer*      cruise_timer_ = nullptr;
     int          cruise_index_ = 0;
     bool         cruise_running_ = false;
+
+    // ---- OCR 识别 ----
+    QGroupBox*   ocr_group_;
+    QPushButton* ocr_btn_;
+    QTextEdit*   ocr_result_edit_;      // 识别结果显示
+    QLabel*      ocr_status_label_;     // 耗时 / 状态
+    QLabel*      ocr_preview_label_;    // 当前用于识别的帧缩略图
+
+    // ---- ROS2 OCR client ----
+    rclcpp::Node::SharedPtr ros_node_;
+    rclcpp::Client<ocr_interfaces::srv::RecognizeText>::SharedPtr ocr_client_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
 
     // ---- 数据 ----
     HKCamera*    camera_;

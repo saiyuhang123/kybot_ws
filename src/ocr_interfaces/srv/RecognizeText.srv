@@ -7,8 +7,7 @@
 # Confidence override: 0.0 = use the node's default conf_threshold.
 # Values > 0.0 override it for this single recognition call.
 float32 conf_threshold
-
-# --- Response ---
+---
 bool success                # false if no frame was ever received
 string message              # human-readable status / error info
 OcrDetection[] detections   # all recognized text regions
