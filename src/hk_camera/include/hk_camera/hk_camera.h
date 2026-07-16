@@ -136,6 +136,12 @@ public:
     bool ptzControl(int user_id, int channel, DWORD command, DWORD stop = 0);
     bool ptzPreset(int user_id, int channel, DWORD cmd, DWORD index = 0);
 
+    // ---- 聚焦控制 ----
+    bool getFocusMode(int user_id, int channel, NET_DVR_FOCUSMODE_CFG& cfg);
+    bool setFocusMode(int user_id, int channel, const NET_DVR_FOCUSMODE_CFG& cfg);
+    bool setAutoFocusMode(int user_id, int channel, BYTE autoFocusMode = 0);
+    bool setManualFocus(int user_id, int channel, DWORD focusPos);
+
     // ---- 配置 ----
     template<typename T>
     bool getDVRConfig(int user_id, DWORD command, int channel, T* params, DWORD* ret_len);

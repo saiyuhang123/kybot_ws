@@ -141,6 +141,46 @@ void MainWindow::setupUI()
     zoom_layout->addWidget(zoom_out_btn_);
     ptz_layout->addLayout(zoom_layout, 3, 0, 1, 3);
 
+    // 聚焦控制
+    auto* focus_label = new QLabel("聚焦:");
+    focus_label->setAlignment(Qt::AlignCenter);
+    focus_label->setStyleSheet("QLabel { color: #aaa; font-weight: bold; }");
+    ptz_layout->addWidget(focus_label, 4, 0, 1, 3);
+
+    auto* focus_layout = new QHBoxLayout();
+    focus_near_btn_ = new QPushButton("◀ 近焦");
+    focus_far_btn_  = new QPushButton("远焦 ▶");
+    focus_near_btn_->setToolTip("手动往近处调焦");
+    focus_far_btn_->setToolTip("手动往远处调焦");
+    focus_layout->addWidget(focus_near_btn_);
+    focus_layout->addWidget(focus_far_btn_);
+    ptz_layout->addLayout(focus_layout, 5, 0, 1, 3);
+
+    // 自动聚焦 + 聚焦位置滑块
+    auto_focus_btn_ = new QPushButton("🔍 自动聚焦");
+    auto_focus_btn_->setStyleSheet(
+        "QPushButton { background-color: #2e7d32; color: white; font-weight: bold; "
+        "border-radius: 3px; }"
+        "QPushButton:hover { background-color: #388e3c; }"
+        "QPushButton:disabled { background-color: #555; }");
+    ptz_layout->addWidget(auto_focus_btn_, 6, 0, 1, 3);
+
+    auto* focus_pos_layout = new QHBoxLayout();
+    focus_pos_layout->addWidget(new QLabel("位置:"));
+    focus_pos_slider_ = new QSlider(Qt::Horizontal);
+    focus_pos_slider_->setRange(0x1000, 0xC000);  // SDK 聚焦值范围
+    focus_pos_slider_->setValue(0x6000);           // 默认中间值
+    focus_pos_slider_->setToolTip("手动聚焦位置 (0x1000~0xC000)");
+    focus_pos_label_ = new QLabel("0x6000");
+    focus_pos_label_->setMinimumWidth(55);
+    focus_pos_layout->addWidget(focus_pos_slider_);
+    focus_pos_layout->addWidget(focus_pos_label_);
+    ptz_layout->addLayout(focus_pos_layout, 7, 0, 1, 3);
+
+    manual_focus_set_btn_ = new QPushButton("✓ 应用手动聚焦");
+    manual_focus_set_btn_->setToolTip("将滑块值写入设备，切换到手动模式");
+    ptz_layout->addWidget(manual_focus_set_btn_, 8, 0, 1, 3);
+
     // 预置点
     auto* preset_layout = new QHBoxLayout();
     preset_spin_      = new QSpinBox();
@@ -155,7 +195,7 @@ void MainWindow::setupUI()
     preset_layout->addWidget(preset_set_btn_);
     preset_layout->addWidget(preset_goto_btn_);
     preset_layout->addWidget(preset_clear_btn_);
-    ptz_layout->addLayout(preset_layout, 4, 0, 1, 3);
+    ptz_layout->addLayout(preset_layout, 9, 0, 1, 3);
 
     ptz_group_->setEnabled(false);
     right_layout->addWidget(ptz_group_, 1, 0);
@@ -270,6 +310,14 @@ void MainWindow::setupConnections()
     connect(preset_set_btn_,   &QPushButton::clicked, this, &MainWindow::onPtzSetPreset);
     connect(preset_goto_btn_,  &QPushButton::clicked, this, &MainWindow::onPtzGotoPreset);
     connect(preset_clear_btn_, &QPushButton::clicked, this, &MainWindow::onPtzClearPreset);
+    // 聚焦
+    connect(focus_near_btn_,    &QPushButton::pressed,  this, &MainWindow::onFocusNearPressed);
+    connect(focus_near_btn_,    &QPushButton::released, this, &MainWindow::onFocusStop);
+    connect(focus_far_btn_,     &QPushButton::pressed,  this, &MainWindow::onFocusFarPressed);
+    connect(focus_far_btn_,     &QPushButton::released, this, &MainWindow::onFocusStop);
+    connect(auto_focus_btn_,    &QPushButton::clicked,  this, &MainWindow::onAutoFocus);
+    connect(manual_focus_set_btn_, &QPushButton::clicked, this, &MainWindow::onSetManualFocus);
+    connect(focus_pos_slider_,  &QSlider::valueChanged, this, &MainWindow::onFocusPosChanged);
     // 巡航
     connect(cruise_start_btn_, &QPushButton::clicked, this, &MainWindow::onCruiseStart);
     connect(cruise_stop_btn_,  &QPushButton::clicked, this, &MainWindow::onCruiseStop);
@@ -493,6 +541,62 @@ void MainWindow::onPtzStop()
 }
 
 void MainWindow::onZoomStop() { onPtzStop(); }
+
+// ============================================================
+// 聚焦控制槽
+// ============================================================
+
+void MainWindow::onFocusNearPressed()
+{
+    if (user_id_ < 0) return;
+    int ch = channel_combo_->currentData().toInt();
+    camera_->ptzControl(user_id_, ch, FOCUS_NEAR, 0);
+    log("手动调焦: 近焦 ←");
+}
+
+void MainWindow::onFocusFarPressed()
+{
+    if (user_id_ < 0) return;
+    int ch = channel_combo_->currentData().toInt();
+    camera_->ptzControl(user_id_, ch, FOCUS_FAR, 0);
+    log("手动调焦: 远焦 →");
+}
+
+void MainWindow::onFocusStop()
+{
+    if (user_id_ < 0) return;
+    int ch = channel_combo_->currentData().toInt();
+    camera_->ptzControl(user_id_, ch, FOCUS_NEAR, 1);
+    camera_->ptzControl(user_id_, ch, FOCUS_FAR,  1);
+}
+
+void MainWindow::onAutoFocus()
+{
+    if (user_id_ < 0) return;
+    int ch = channel_combo_->currentData().toInt();
+    log("触发自动聚焦...");
+    if (camera_->setAutoFocusMode(user_id_, ch, 0))
+        log("✓ 自动聚焦模式已设置");
+    else
+        log(QString("✗ 自动聚焦失败, 错误码=%1").arg(camera_->getLastError()));
+}
+
+void MainWindow::onSetManualFocus()
+{
+    if (user_id_ < 0) return;
+    int ch = channel_combo_->currentData().toInt();
+    DWORD pos = static_cast<DWORD>(focus_pos_slider_->value());
+    log(QString("设置手动聚焦位置: 0x%1").arg(pos, 1, 16));
+    if (camera_->setManualFocus(user_id_, ch, pos))
+        log(QString("✓ 手动聚焦已设置 (位置=0x%1)").arg(pos, 1, 16));
+    else
+        log(QString("✗ 手动聚焦失败, 错误码=%1").arg(camera_->getLastError()));
+}
+
+void MainWindow::onFocusPosChanged(int value)
+{
+    focus_pos_label_->setText(QString("0x%1").arg(value, 1, 16));
+}
 
 void MainWindow::onPtzSetPreset()
 {

@@ -12,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QSpinBox>
+#include <QSlider>
 #include <QTimer>
 #include <QScrollArea>
 #include <memory>
@@ -78,6 +79,14 @@ private slots:
     void onCruiseStop();
     void onCruiseTick();
 
+    // ---- 聚焦控制 ----
+    void onFocusNearPressed();
+    void onFocusFarPressed();
+    void onFocusStop();
+    void onAutoFocus();
+    void onSetManualFocus();
+    void onFocusPosChanged(int value);
+
     // ---- OCR 识别 ----
     void onOcrRecognize();
 
@@ -124,6 +133,15 @@ private:
     QPushButton* preset_set_btn_;
     QPushButton* preset_goto_btn_;
     QPushButton* preset_clear_btn_;
+
+    // ---- 聚焦控件 ----
+    QGroupBox*   focus_group_;
+    QPushButton* focus_near_btn_;
+    QPushButton* focus_far_btn_;
+    QPushButton* auto_focus_btn_;
+    QPushButton* manual_focus_set_btn_;
+    QSlider*     focus_pos_slider_;
+    QLabel*      focus_pos_label_;   // 当前聚焦位置
 
     QTimer*      status_timer_;
     QTimer*      snapshot_timer_ = nullptr;

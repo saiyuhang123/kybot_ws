@@ -268,6 +268,64 @@ bool HKCamera::ptzPreset(int user_id, int channel, DWORD cmd, DWORD index)
 }
 
 // ============================================================
+// 聚焦控制
+// ============================================================
+
+bool HKCamera::getFocusMode(int user_id, int channel, NET_DVR_FOCUSMODE_CFG& cfg)
+{
+    cfg.dwSize = sizeof(NET_DVR_FOCUSMODE_CFG);
+    DWORD ret_len = 0;
+    return NET_DVR_GetDVRConfig(user_id, NET_DVR_GET_FOCUSMODECFG, channel,
+                                &cfg, sizeof(NET_DVR_FOCUSMODE_CFG), &ret_len);
+}
+
+bool HKCamera::setFocusMode(int user_id, int channel, const NET_DVR_FOCUSMODE_CFG& cfg)
+{
+    return NET_DVR_SetDVRConfig(user_id, NET_DVR_SET_FOCUSMODECFG, channel,
+                                const_cast<NET_DVR_FOCUSMODE_CFG*>(&cfg),
+                                sizeof(NET_DVR_FOCUSMODE_CFG));
+}
+
+bool HKCamera::setAutoFocusMode(int user_id, int channel, BYTE autoFocusMode)
+{
+    // 先读取当前配置
+    NET_DVR_FOCUSMODE_CFG cfg = {0};
+    cfg.dwSize = sizeof(NET_DVR_FOCUSMODE_CFG);
+    DWORD ret_len = 0;
+    if (!NET_DVR_GetDVRConfig(user_id, NET_DVR_GET_FOCUSMODECFG, channel,
+                              &cfg, sizeof(NET_DVR_FOCUSMODE_CFG), &ret_len))
+    {
+        // 读取失败时, 构造默认配置
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.dwSize = sizeof(NET_DVR_FOCUSMODE_CFG);
+    }
+
+    cfg.byFocusMode     = 0;  // 自动
+    cfg.byAutoFocusMode = autoFocusMode;  // 0=关闭, 1=A, 2=B, 3=AB, 4=C
+    return NET_DVR_SetDVRConfig(user_id, NET_DVR_SET_FOCUSMODECFG, channel,
+                                &cfg, sizeof(NET_DVR_FOCUSMODE_CFG));
+}
+
+bool HKCamera::setManualFocus(int user_id, int channel, DWORD focusPos)
+{
+    // 先读取当前配置
+    NET_DVR_FOCUSMODE_CFG cfg = {0};
+    cfg.dwSize = sizeof(NET_DVR_FOCUSMODE_CFG);
+    DWORD ret_len = 0;
+    if (!NET_DVR_GetDVRConfig(user_id, NET_DVR_GET_FOCUSMODECFG, channel,
+                              &cfg, sizeof(NET_DVR_FOCUSMODE_CFG), &ret_len))
+    {
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.dwSize = sizeof(NET_DVR_FOCUSMODE_CFG);
+    }
+
+    cfg.byFocusMode = 1;       // 手动
+    cfg.dwFocusPos  = focusPos; // [0x1000, 0xC000]
+    return NET_DVR_SetDVRConfig(user_id, NET_DVR_SET_FOCUSMODECFG, channel,
+                                &cfg, sizeof(NET_DVR_FOCUSMODE_CFG));
+}
+
+// ============================================================
 // 配置 GET/SET
 // ============================================================
 
@@ -292,6 +350,10 @@ template bool HKCamera::getDVRConfig<NET_DVR_COMPRESSIONCFG_V30>(
     int, DWORD, int, NET_DVR_COMPRESSIONCFG_V30*, DWORD*);
 template bool HKCamera::setDVRConfig<NET_DVR_COMPRESSIONCFG_V30>(
     int, DWORD, int, const NET_DVR_COMPRESSIONCFG_V30*);
+template bool HKCamera::getDVRConfig<NET_DVR_FOCUSMODE_CFG>(
+    int, DWORD, int, NET_DVR_FOCUSMODE_CFG*, DWORD*);
+template bool HKCamera::setDVRConfig<NET_DVR_FOCUSMODE_CFG>(
+    int, DWORD, int, const NET_DVR_FOCUSMODE_CFG*);
 
 // ============================================================
 // SDK 信息
