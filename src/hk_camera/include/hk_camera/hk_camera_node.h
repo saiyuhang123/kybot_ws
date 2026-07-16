@@ -10,6 +10,7 @@
 #include "hk_camera/hk_decoder.h"
 #include "hk_camera/msg/camera_alarm.hpp"
 #include "hk_camera/srv/capture_picture.hpp"
+#include "hk_camera/srv/set_ptz_pose.hpp"
 
 namespace hk_camera
 {
@@ -73,6 +74,9 @@ private:
     void onStopStream(
         const std_srvs::srv::Trigger::Request::SharedPtr req,
         std_srvs::srv::Trigger::Response::SharedPtr res);
+    void onSetPTZPose(
+        const srv::SetPTZPose::Request::SharedPtr req,
+        srv::SetPTZPose::Response::SharedPtr res);
 
     // ---- Sub callback ----
     void onCommand(const std_msgs::msg::String::SharedPtr msg);
@@ -101,6 +105,7 @@ private:
 
     // ---- 服务 ----
     rclcpp::Service<srv::CapturePicture>::SharedPtr           capture_srv_;
+    rclcpp::Service<srv::SetPTZPose>::SharedPtr               set_ptz_pose_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr        login_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr        logout_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr        start_stream_srv_;

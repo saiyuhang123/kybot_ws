@@ -3,7 +3,7 @@
 <package format="3">
   <name>my_rviz_panel</name>
   <version>0.0.0</version>
-  <description>RViz2 Panel for recording waypoints and triggering Nav2 Multi-point navigation</description>
+  <description>RViz2 Panel for waypoint mission planning and Nav2+PTZ+Capture integration</description>
   <maintainer email="your_email@todo.todo">user</maintainer>
   <license>Apache-2.0</license>
 
@@ -18,6 +18,8 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav2_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>hk_camera</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -128,6 +128,13 @@ void HKCameraNode::setupServices()
                std_srvs::srv::Trigger::Response::SharedPtr       res) {
             onStopStream(req, res);
         });
+
+    set_ptz_pose_srv_ = create_service<srv::SetPTZPose>(
+        "/hk_camera/set_ptz_pose",
+        [this](const srv::SetPTZPose::Request::SharedPtr  req,
+               srv::SetPTZPose::Response::SharedPtr       res) {
+            onSetPTZPose(req, res);
+        });
 }
 
 // ============================================================
@@ -321,6 +328,45 @@ void HKCameraNode::onCapturePicture(
     else
     {
         res->message = "Capture failed, error=" +
+                       std::to_string(camera_->getLastError());
+    }
+}
+
+// ============================================================
+// PTZ 姿态控制服务
+// ============================================================
+
+void HKCameraNode::onSetPTZPose(
+    const srv::SetPTZPose::Request::SharedPtr req,
+    srv::SetPTZPose::Response::SharedPtr res)
+{
+    if (user_id_ < 0)
+    {
+        res->success = false;
+        res->message = "Not logged in";
+        return;
+    }
+
+    // 海康 SDK 没有直接的绝对位置 API, 使用预置点方案:
+    // pan 字段作为预置点编号 (1~256)
+    int preset_no = static_cast<int>(req->pan);
+    if (preset_no < 1 || preset_no > 256)
+    {
+        res->success = false;
+        res->message = "Invalid preset number (pan field, expect 1~256)";
+        return;
+    }
+
+    if (camera_->ptzGotoPreset(user_id_, channel_, preset_no))
+    {
+        res->success = true;
+        res->message = "PTZ moving to preset " + std::to_string(preset_no);
+        RCLCPP_INFO(get_logger(), "PTZ → preset %d", preset_no);
+    }
+    else
+    {
+        res->success = false;
+        res->message = "PTZ failed, error=" +
                        std::to_string(camera_->getLastError());
     }
 }

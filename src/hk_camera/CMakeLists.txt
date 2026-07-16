@@ -22,6 +22,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -33,8 +34,12 @@ find_package(ocr_interfaces REQUIRED)
 # 自定义消息/服务
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CameraAlarm.msg"
+  "msg/MissionWaypoint.msg"
+  "msg/MissionStatus.msg"
   "srv/CapturePicture.srv"
-  DEPENDENCIES builtin_interfaces sensor_msgs
+  "srv/SetPTZPose.srv"
+  "srv/RunMission.srv"
+  DEPENDENCIES builtin_interfaces sensor_msgs geometry_msgs
   ADD_LINTER_TESTS
 )
 
@@ -138,6 +143,7 @@ ament_target_dependencies(hk_camera_node
   sensor_msgs
   std_msgs
   std_srvs
+  geometry_msgs
   cv_bridge
   OpenCV
 )
@@ -179,6 +185,7 @@ if(BUILD_HK_GUI)
     sensor_msgs
     std_msgs
     std_srvs
+    geometry_msgs
     cv_bridge
     OpenCV
     ocr_interfaces

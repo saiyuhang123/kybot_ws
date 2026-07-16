@@ -78,7 +78,6 @@ private slots:
     void onCruiseStart();
     void onCruiseStop();
     void onCruiseTick();
-    void onQueryPresets();
 
     // ---- 硬件巡航 ----
     void onHwCruiseSave();

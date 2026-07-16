@@ -268,6 +268,26 @@ bool HKCamera::ptzPreset(int user_id, int channel, DWORD cmd, DWORD index)
 }
 
 // ============================================================
+// 云台绝对位置控制
+// ============================================================
+
+bool HKCamera::ptzGotoPreset(int user_id, int channel, int preset_no)
+{
+    return NET_DVR_PTZPreset_Other(user_id, channel, GOTO_PRESET, preset_no);
+}
+
+bool HKCamera::ptzSetPreset(int user_id, int channel, int preset_no)
+{
+    return NET_DVR_PTZPreset_Other(user_id, channel, SET_PRESET, preset_no);
+}
+
+bool HKCamera::ptzControlWithSpeed(int user_id, int channel,
+                                    DWORD command, DWORD speed, DWORD stop)
+{
+    return NET_DVR_PTZControlWithSpeed_Other(user_id, channel, command, stop, speed);
+}
+
+// ============================================================
 // 硬件巡航 (设备端执行)
 // ============================================================
 

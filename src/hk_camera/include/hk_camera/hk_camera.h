@@ -136,6 +136,11 @@ public:
     bool ptzControl(int user_id, int channel, DWORD command, DWORD stop = 0);
     bool ptzPreset(int user_id, int channel, DWORD cmd, DWORD index = 0);
 
+    // ---- 云台绝对位置控制 ----
+    bool ptzGotoPreset(int user_id, int channel, int preset_no);
+    bool ptzSetPreset(int user_id, int channel, int preset_no);
+    bool ptzControlWithSpeed(int user_id, int channel, DWORD command, DWORD speed, DWORD stop = 0);
+
     // ---- 硬件巡航 (设备端执行, 程序可退出) ----
     bool ptzCruiseAddPoint(int user_id, int channel, int route, int point_index, int preset_no);
     bool ptzCruiseSetDwell(int user_id, int channel, int route, int point_index, int dwell_sec);
