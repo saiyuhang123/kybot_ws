@@ -136,6 +136,20 @@ public:
     bool ptzControl(int user_id, int channel, DWORD command, DWORD stop = 0);
     bool ptzPreset(int user_id, int channel, DWORD cmd, DWORD index = 0);
 
+    // ---- 硬件巡航 (设备端执行, 程序可退出) ----
+    bool ptzCruiseAddPoint(int user_id, int channel, int route, int point_index, int preset_no);
+    bool ptzCruiseSetDwell(int user_id, int channel, int route, int point_index, int dwell_sec);
+    bool ptzCruiseSetSpeed(int user_id, int channel, int route, int point_index, int speed);
+    bool ptzCruiseClearPoint(int user_id, int channel, int route, int point_index);
+    bool ptzCruiseDeleteRoute(int user_id, int channel, int route);
+    bool ptzCruiseStart(int user_id, int channel, int route);
+    bool ptzCruiseStop(int user_id, int channel, int route);
+    bool ptzCruiseQuery(int user_id, int channel, int route,
+                        std::vector<int>& presets, std::vector<int>& dwells, std::vector<int>& speeds);
+    bool ptzCruiseSetRoute(int user_id, int channel, int route,
+                           const std::vector<int>& presets, int dwell_sec, int speed);
+    bool ptzClearAllPresets(int user_id, int channel);
+
     // ---- 聚焦控制 ----
     bool getFocusMode(int user_id, int channel, NET_DVR_FOCUSMODE_CFG& cfg);
     bool setFocusMode(int user_id, int channel, const NET_DVR_FOCUSMODE_CFG& cfg);

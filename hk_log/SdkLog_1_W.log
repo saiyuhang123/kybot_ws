@@ -1,273 +1,50 @@
-[2026-07-16 09:58:59.304][INF] The COM:HCCoreBase ver is 6.1.4.15, 2020_03_05. Async:1.
-[2026-07-16 09:58:59.305][INF] The COM:Core ver is 6.1.11.5, 2025_12_04. Async:1.
-[2026-07-16 09:58:59.305][INF] This HCNetSDK ver is 6.1.11.5 Ver 2025_12_04.
-[2026-07-16 09:58:59.310][INF] COM_Login dev 192.168.1.64:8000.
-[2026-07-16 09:58:59.310][INF] dwTotalNum[2048]
-[2026-07-16 09:58:59.311][INF] Private connect 192.168.1.64:8000 sock=166 this=0xfbb1eb24 cmd=0x10000 port=35200
-[2026-07-16 09:58:59.311][INF] LogonDev1 in[192.168.1.64:8000]
-[2026-07-16 09:58:59.314][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
-[2026-07-16 09:58:59.362][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
-[2026-07-16 09:59:09.156][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPreview.so] SUCC
-[2026-07-16 09:59:09.157][INF] AbilityAnalyze---Init-- start
-[2026-07-16 09:59:09.162][DBG] AbilityAnalyze---Init-- over, DeviceList path [/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/LocalXml/DeviceList.xml], load result[0]
-[2026-07-16 09:59:09.163][DBG] COM_Preview_GetSDKBuildVersion
-[2026-07-16 09:59:09.163][INF] The COM:Preview ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 09:59:09.164][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=36782
-[2026-07-16 09:59:10.682][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=36798
-[2026-07-16 09:59:10.749][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=36806
-[2026-07-16 09:59:10.815][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=36816
-[2026-07-16 09:59:11.923][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=36820
-[2026-07-16 09:59:12.706][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=36824
-[2026-07-16 09:59:12.773][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=36828
-[2026-07-16 09:59:12.839][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=48526
-[2026-07-16 10:04:11.820][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCVoiceTalk.so] SUCC
-[2026-07-16 10:04:11.820][INF] The COM:VoiceTalk ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 10:04:11.825][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCGeneralCfgMgr.so] SUCC
-[2026-07-16 10:04:11.827][INF] The COM:HCGeneralCfgMgr ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 10:04:11.830][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPlayBack.so] SUCC
-[2026-07-16 10:04:11.830][INF] The COM:HCPlayback ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 10:04:11.833][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCIndustry.so] SUCC
-[2026-07-16 10:04:11.833][INF] The COM:HCIndustry ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 10:04:11.835][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCDisplay.so] SUCC
-[2026-07-16 10:04:11.836][INF] The COM:HCDisplay ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 10:04:11.838][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCAlarm.so] SUCC
-[2026-07-16 10:04:11.839][INF] The COM:HCAlarm ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 10:04:11.841][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113305 port=37660
-[2026-07-16 10:04:11.848][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:04:11.849][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113306 port=37676
-[2026-07-16 10:04:13.594][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113305 port=38046
-[2026-07-16 10:04:13.600][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:04:13.601][INF] Private connect 192.168.1.64:8000 sock=256 this=0xfbb1eb24 cmd=0x113306 port=38052
-[2026-07-16 10:04:14.343][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113305 port=38064
-[2026-07-16 10:04:14.351][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:04:14.353][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113306 port=38074
-[2026-07-16 10:04:14.855][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113305 port=38088
-[2026-07-16 10:04:14.875][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:04:14.875][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113306 port=38092
-[2026-07-16 10:04:15.565][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113305 port=38102
-[2026-07-16 10:04:15.574][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:04:15.575][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113306 port=38110
-[2026-07-16 10:04:15.932][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113305 port=38116
-[2026-07-16 10:04:15.939][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:04:15.940][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x113306 port=38130
-[2026-07-16 10:04:17.661][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=38136
-[2026-07-16 10:04:19.028][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=38138
-[2026-07-16 10:04:19.254][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=38152
-[2026-07-16 10:04:19.320][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=38156
-[2026-07-16 10:04:21.339][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=38164
-[2026-07-16 10:04:22.566][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=38176
-[2026-07-16 10:04:22.798][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=38182
-[2026-07-16 10:04:22.868][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=52126
-[2026-07-16 10:04:23.475][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=52132
-[2026-07-16 10:04:24.314][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=52144
-[2026-07-16 10:04:24.545][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=52150
-[2026-07-16 10:04:24.616][INF] Private connect 192.168.1.64:8000 sock=255 this=0xfbb1eb24 cmd=0x30200 port=52164
-[2026-07-16 10:04:29.394][INF] Private connect 192.168.1.64:8000 sock=166 this=0xfbb1eb24 cmd=0x30009 port=52168
-[2026-07-16 10:04:30.497][INF] Private connect 192.168.1.64:8000 sock=166 this=0xfbb1eb24 cmd=0x30009 port=52174
-[2026-07-16 10:04:31.487][INF] Private connect 192.168.1.64:8000 sock=166 this=0xfbb1eb24 cmd=0x30009 port=52186
-[2026-07-16 10:04:37.327][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30009 port=53404
-[2026-07-16 10:09:02.583][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113305 port=53222
-[2026-07-16 10:09:02.591][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:09:02.591][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113306 port=53226
-[2026-07-16 10:09:03.249][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113305 port=48870
-[2026-07-16 10:09:03.271][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:09:03.272][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113306 port=48874
-[2026-07-16 10:09:03.576][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113305 port=48884
-[2026-07-16 10:09:03.583][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:09:03.584][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113306 port=48892
-[2026-07-16 10:09:03.821][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113305 port=48902
-[2026-07-16 10:09:03.829][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:09:03.830][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113306 port=48916
-[2026-07-16 10:09:03.975][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113305 port=48928
-[2026-07-16 10:09:03.982][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:09:03.982][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113306 port=48930
-[2026-07-16 10:09:04.103][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113305 port=48940
-[2026-07-16 10:09:04.110][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:09:04.110][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113306 port=48944
-[2026-07-16 10:09:05.047][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=48952
-[2026-07-16 10:09:07.172][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=48958
-[2026-07-16 10:09:07.237][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=48972
-[2026-07-16 10:09:07.309][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=48986
-[2026-07-16 10:09:08.626][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49014
-[2026-07-16 10:09:09.691][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49020
-[2026-07-16 10:09:09.759][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49026
-[2026-07-16 10:09:09.825][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49030
-[2026-07-16 10:09:13.308][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=35930
-[2026-07-16 10:09:14.268][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=35932
-[2026-07-16 10:09:14.339][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=35942
-[2026-07-16 10:09:14.405][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=35944
-[2026-07-16 10:09:40.287][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113305 port=35068
-[2026-07-16 10:09:40.298][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x113306] dwDVRReturn[0]  dwoutBufSize[76]
-[2026-07-16 10:09:40.298][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x113306 port=35072
-[2026-07-16 10:10:01.823][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=53180
-[2026-07-16 10:10:02.862][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36162
-[2026-07-16 10:10:03.090][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36178
-[2026-07-16 10:10:03.161][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36184
-[2026-07-16 10:10:04.205][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36194
-[2026-07-16 10:10:04.650][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36196
-[2026-07-16 10:10:04.715][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36198
-[2026-07-16 10:10:04.784][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36206
-[2026-07-16 10:10:06.715][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36208
-[2026-07-16 10:10:07.033][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36218
-[2026-07-16 10:10:07.102][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36230
-[2026-07-16 10:10:07.167][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36244
-[2026-07-16 10:10:08.401][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36252
-[2026-07-16 10:10:08.596][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36262
-[2026-07-16 10:10:08.661][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36266
-[2026-07-16 10:10:08.726][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36268
-[2026-07-16 10:10:25.890][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40690
-[2026-07-16 10:10:26.214][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40702
-[2026-07-16 10:10:26.443][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40704
-[2026-07-16 10:10:26.508][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40720
-[2026-07-16 10:10:27.282][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40724
-[2026-07-16 10:10:27.523][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40734
-[2026-07-16 10:10:27.750][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40750
-[2026-07-16 10:10:27.820][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40752
-[2026-07-16 10:10:29.804][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40766
-[2026-07-16 10:10:30.040][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40780
-[2026-07-16 10:10:30.108][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40782
-[2026-07-16 10:10:30.236][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40788
-[2026-07-16 10:10:31.820][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40798
-[2026-07-16 10:10:31.959][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40810
-[2026-07-16 10:10:32.022][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40814
-[2026-07-16 10:10:32.092][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=40826
-[2026-07-16 10:10:33.133][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43650
-[2026-07-16 10:10:33.785][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43660
-[2026-07-16 10:10:34.016][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43672
-[2026-07-16 10:10:34.081][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43678
-[2026-07-16 10:10:46.707][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49872
-[2026-07-16 10:10:46.990][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49880
-[2026-07-16 10:10:47.057][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49888
-[2026-07-16 10:10:47.124][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49892
-[2026-07-16 10:10:47.747][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49900
-[2026-07-16 10:10:47.861][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49904
-[2026-07-16 10:10:47.927][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49918
-[2026-07-16 10:10:47.995][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49920
-[2026-07-16 10:10:48.553][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49932
-[2026-07-16 10:10:48.641][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49944
-[2026-07-16 10:10:48.710][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49948
-[2026-07-16 10:10:48.809][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49950
-[2026-07-16 10:10:49.278][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49956
-[2026-07-16 10:10:49.370][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49958
-[2026-07-16 10:10:49.434][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49972
-[2026-07-16 10:10:49.498][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49976
-[2026-07-16 10:10:50.022][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=49988
-[2026-07-16 10:10:50.138][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50000
-[2026-07-16 10:10:50.205][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50014
-[2026-07-16 10:10:50.274][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50024
-[2026-07-16 10:10:51.124][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50036
-[2026-07-16 10:10:51.227][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50042
-[2026-07-16 10:10:51.294][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50050
-[2026-07-16 10:10:51.361][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50064
-[2026-07-16 10:10:51.808][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50078
-[2026-07-16 10:10:51.910][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50082
-[2026-07-16 10:10:51.976][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50086
-[2026-07-16 10:10:52.044][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50088
-[2026-07-16 10:10:52.854][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38028
-[2026-07-16 10:10:52.942][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38032
-[2026-07-16 10:10:53.007][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38048
-[2026-07-16 10:10:53.075][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38056
-[2026-07-16 10:11:03.765][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34508
-[2026-07-16 10:11:06.701][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34514
-[2026-07-16 10:11:06.926][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34530
-[2026-07-16 10:11:06.994][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34540
-[2026-07-16 10:11:07.617][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34550
-[2026-07-16 10:11:08.549][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34564
-[2026-07-16 10:11:08.617][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34578
-[2026-07-16 10:11:08.682][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34592
-[2026-07-16 10:11:09.390][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34598
-[2026-07-16 10:11:10.089][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34622
-[2026-07-16 10:11:10.153][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34630
-[2026-07-16 10:11:10.219][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34642
-[2026-07-16 10:11:11.463][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34644
-[2026-07-16 10:11:11.779][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34656
-[2026-07-16 10:11:11.846][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34666
-[2026-07-16 10:11:11.912][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=34672
-[2026-07-16 10:11:12.852][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38832
-[2026-07-16 10:11:13.543][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38846
-[2026-07-16 10:11:13.639][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38852
-[2026-07-16 10:11:13.705][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38854
-[2026-07-16 10:11:15.016][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38858
-[2026-07-16 10:11:15.291][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38874
-[2026-07-16 10:11:15.357][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38884
-[2026-07-16 10:11:15.425][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38900
-[2026-07-16 10:11:16.536][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38906
-[2026-07-16 10:11:16.688][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38920
-[2026-07-16 10:11:16.756][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38932
-[2026-07-16 10:11:16.823][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38936
-[2026-07-16 10:11:17.860][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38952
-[2026-07-16 10:11:19.277][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38962
-[2026-07-16 10:11:19.506][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38964
-[2026-07-16 10:11:19.575][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38966
-[2026-07-16 10:11:20.294][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38974
-[2026-07-16 10:11:20.622][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38988
-[2026-07-16 10:11:20.692][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38992
-[2026-07-16 10:11:20.761][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=38996
-[2026-07-16 10:11:31.391][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=37120
-[2026-07-16 10:11:32.229][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=37128
-[2026-07-16 10:11:32.455][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=37140
-[2026-07-16 10:11:32.522][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=37144
-[2026-07-16 10:11:35.372][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57942
-[2026-07-16 10:11:35.567][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57946
-[2026-07-16 10:11:35.634][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57962
-[2026-07-16 10:11:35.699][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57966
-[2026-07-16 10:11:36.772][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57968
-[2026-07-16 10:11:36.883][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57974
-[2026-07-16 10:11:36.952][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57978
-[2026-07-16 10:11:37.018][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57986
-[2026-07-16 10:11:38.028][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58002
-[2026-07-16 10:11:38.230][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58012
-[2026-07-16 10:11:38.296][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58028
-[2026-07-16 10:11:38.404][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58030
-[2026-07-16 10:11:39.328][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58034
-[2026-07-16 10:11:39.427][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58044
-[2026-07-16 10:11:39.492][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58056
-[2026-07-16 10:11:39.556][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58072
-[2026-07-16 10:11:40.318][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58080
-[2026-07-16 10:11:40.421][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58090
-[2026-07-16 10:11:40.488][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58092
-[2026-07-16 10:11:40.558][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58108
-[2026-07-16 10:11:41.309][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58118
-[2026-07-16 10:11:41.406][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58120
-[2026-07-16 10:11:41.486][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58132
-[2026-07-16 10:11:41.567][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=58138
-[2026-07-16 10:12:17.782][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=56072
-[2026-07-16 10:12:24.041][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57026
-[2026-07-16 10:12:27.142][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57034
-[2026-07-16 10:12:27.729][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57040
-[2026-07-16 10:12:27.797][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57052
-[2026-07-16 10:12:27.866][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57068
-[2026-07-16 10:12:29.198][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57082
-[2026-07-16 10:12:29.597][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57094
-[2026-07-16 10:12:29.661][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57102
-[2026-07-16 10:12:29.728][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57104
-[2026-07-16 10:12:30.696][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=57112
-[2026-07-16 10:12:34.339][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43540
-[2026-07-16 10:12:34.408][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43556
-[2026-07-16 10:12:34.474][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43560
-[2026-07-16 10:12:35.712][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43574
-[2026-07-16 10:12:40.668][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=43588
-[2026-07-16 10:12:44.818][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=42676
-[2026-07-16 10:12:44.886][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=42678
-[2026-07-16 10:12:44.954][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=42692
-[2026-07-16 10:12:46.701][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=42694
-[2026-07-16 10:12:50.278][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=42700
-[2026-07-16 10:12:54.376][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=52994
-[2026-07-16 10:12:54.442][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=53010
-[2026-07-16 10:12:54.514][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=53018
-[2026-07-16 10:12:56.427][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=53024
-[2026-07-16 10:13:04.902][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50502
-[2026-07-16 10:13:06.848][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=50512
-[2026-07-16 10:13:33.682][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=41136
-[2026-07-16 10:13:38.986][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=41140
-[2026-07-16 10:13:43.987][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=56632
-[2026-07-16 10:13:48.987][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=56646
-[2026-07-16 10:13:53.986][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=35264
-[2026-07-16 10:13:58.987][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=35272
-[2026-07-16 10:14:03.987][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=60514
-[2026-07-16 10:14:08.987][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=60528
-[2026-07-16 10:14:13.992][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=42944
-[2026-07-16 10:14:18.991][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=42952
-[2026-07-16 10:14:23.993][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36952
-[2026-07-16 10:14:28.987][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=36964
-[2026-07-16 10:14:33.987][INF] Private connect 192.168.1.64:8000 sock=195 this=0xfbb1eb24 cmd=0x30200 port=56418
+[2026-07-16 11:55:31.354][INF] The COM:HCCoreBase ver is 6.1.4.15, 2020_03_05. Async:1.
+[2026-07-16 11:55:31.354][INF] The COM:Core ver is 6.1.11.5, 2025_12_04. Async:1.
+[2026-07-16 11:55:31.354][INF] This HCNetSDK ver is 6.1.11.5 Ver 2025_12_04.
+[2026-07-16 11:55:31.358][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-16 11:55:31.358][INF] dwTotalNum[2048]
+[2026-07-16 11:55:31.358][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x10000 port=48282
+[2026-07-16 11:55:31.358][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-16 11:55:31.360][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-16 11:55:31.406][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-16 11:55:48.438][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPreview.so] SUCC
+[2026-07-16 11:55:48.438][INF] AbilityAnalyze---Init-- start
+[2026-07-16 11:55:48.444][DBG] AbilityAnalyze---Init-- over, DeviceList path [/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/LocalXml/DeviceList.xml], load result[0]
+[2026-07-16 11:55:48.444][DBG] COM_Preview_GetSDKBuildVersion
+[2026-07-16 11:55:48.444][INF] The COM:Preview ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 11:55:48.445][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52684
+[2026-07-16 11:55:48.448][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[13] is not QULIFIED(1)
+[2026-07-16 11:55:48.448][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52700
+[2026-07-16 11:55:48.452][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[14] is not QULIFIED(1)
+[2026-07-16 11:55:48.453][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52712
+[2026-07-16 11:55:48.457][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52716
+[2026-07-16 11:55:48.464][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCVoiceTalk.so] SUCC
+[2026-07-16 11:55:48.464][INF] The COM:VoiceTalk ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 11:55:48.467][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCGeneralCfgMgr.so] SUCC
+[2026-07-16 11:55:48.467][INF] The COM:HCGeneralCfgMgr ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 11:55:48.469][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPlayBack.so] SUCC
+[2026-07-16 11:55:48.470][INF] The COM:HCPlayback ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 11:55:48.471][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCIndustry.so] SUCC
+[2026-07-16 11:55:48.472][INF] The COM:HCIndustry ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 11:55:48.473][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCDisplay.so] SUCC
+[2026-07-16 11:55:48.473][INF] The COM:HCDisplay ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 11:55:48.475][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCAlarm.so] SUCC
+[2026-07-16 11:55:48.475][INF] The COM:HCAlarm ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 11:55:48.476][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x1100e1] dwDVRReturn[0]  dwoutBufSize[148]
+[2026-07-16 11:55:48.476][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x1100e1 port=52718
+[2026-07-16 11:55:48.480][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[13] is not QULIFIED(1)
+[2026-07-16 11:55:48.480][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52724
+[2026-07-16 11:55:48.483][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[14] is not QULIFIED(1)
+[2026-07-16 11:55:48.484][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52736
+[2026-07-16 11:55:48.487][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[14] is not QULIFIED(1)
+[2026-07-16 11:55:48.487][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52750
+[2026-07-16 11:55:48.496][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52766
+[2026-07-16 11:55:48.680][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52774
+[2026-07-16 11:55:48.686][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52784
+[2026-07-16 11:55:48.874][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30210 port=52794
+[2026-07-16 12:23:49.902][INF] Private connect 192.168.1.64:8000 sock=250 this=0xef726084 cmd=0x30200 port=48306
+[2026-07-16 12:24:00.498][INF] Private connect 192.168.1.64:8000 sock=250 this=0xef726084 cmd=0x30200 port=52076
+[2026-07-16 12:25:31.792][INF] Private connect 192.168.1.64:8000 sock=250 this=0xef726084 cmd=0x30200 port=48376
+[2026-07-16 12:34:40.984][INF] COM_Logout[0][1]
+[2026-07-16 12:34:40.986][DBG] CUserMgr::UnRegisterHeartProxy[0]
+[2026-07-16 12:34:40.986][INF] Private connect 192.168.1.64:8000 sock=18 this=0xef726084 cmd=0x10100 port=56852

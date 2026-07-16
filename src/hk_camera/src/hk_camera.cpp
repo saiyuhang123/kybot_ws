@@ -268,6 +268,140 @@ bool HKCamera::ptzPreset(int user_id, int channel, DWORD cmd, DWORD index)
 }
 
 // ============================================================
+// 硬件巡航 (设备端执行)
+// ============================================================
+
+bool HKCamera::ptzCruiseAddPoint(int user_id, int channel,
+                                  int route, int point_index, int preset_no)
+{
+    // FILL_PRE_SEQ(30): 将预置点加入巡航路线
+    return NET_DVR_PTZCruise_Other(user_id, channel,
+        FILL_PRE_SEQ, (BYTE)route, (BYTE)point_index, (WORD)preset_no);
+}
+
+bool HKCamera::ptzCruiseSetDwell(int user_id, int channel,
+                                   int route, int point_index, int dwell_sec)
+{
+    // SET_SEQ_DWELL(31): 设置巡航点驻留时间
+    return NET_DVR_PTZCruise_Other(user_id, channel,
+        SET_SEQ_DWELL, (BYTE)route, (BYTE)point_index, (WORD)dwell_sec);
+}
+
+bool HKCamera::ptzCruiseSetSpeed(int user_id, int channel,
+                                   int route, int point_index, int speed)
+{
+    // SET_SEQ_SPEED(32): 设置巡航点转速
+    return NET_DVR_PTZCruise_Other(user_id, channel,
+        SET_SEQ_SPEED, (BYTE)route, (BYTE)point_index, (WORD)speed);
+}
+
+bool HKCamera::ptzCruiseClearPoint(int user_id, int channel,
+                                     int route, int point_index)
+{
+    // CLE_PRE_SEQ(33): 从巡航路线中删除某个预置点
+    return NET_DVR_PTZCruise_Other(user_id, channel,
+        CLE_PRE_SEQ, (BYTE)route, (BYTE)point_index, 0);
+}
+
+bool HKCamera::ptzCruiseDeleteRoute(int user_id, int channel, int route)
+{
+    // DEL_SEQ(43): 删除整条巡航路线
+    return NET_DVR_PTZCruise_Other(user_id, channel,
+        DEL_SEQ, (BYTE)route, 0, 0);
+}
+
+bool HKCamera::ptzCruiseStart(int user_id, int channel, int route)
+{
+    // RUN_SEQ(37): 启动巡航
+    return NET_DVR_PTZCruise_Other(user_id, channel,
+        RUN_SEQ, (BYTE)route, 0, 0);
+}
+
+bool HKCamera::ptzCruiseStop(int user_id, int channel, int route)
+{
+    // STOP_SEQ(38): 停止巡航
+    return NET_DVR_PTZCruise_Other(user_id, channel,
+        STOP_SEQ, (BYTE)route, 0, 0);
+}
+
+bool HKCamera::ptzCruiseQuery(int user_id, int channel, int route,
+                               std::vector<int>& presets, std::vector<int>& dwells,
+                               std::vector<int>& speeds)
+{
+    NET_DVR_CRUISE_RET cruise_ret = {0};
+    if (!NET_DVR_GetPTZCruise(user_id, channel, route, &cruise_ret))
+        return false;
+
+    presets.clear();
+    dwells.clear();
+    speeds.clear();
+    for (int i = 0; i < 32; i++)
+    {
+        // PresetNum == 0 表示该槽位为空
+        if (cruise_ret.struCruisePoint[i].PresetNum == 0)
+            break;
+        presets.push_back(cruise_ret.struCruisePoint[i].PresetNum);
+        dwells.push_back(cruise_ret.struCruisePoint[i].Dwell);
+        speeds.push_back(cruise_ret.struCruisePoint[i].Speed);
+    }
+    return true;
+}
+
+bool HKCamera::ptzCruiseSetRoute(int user_id, int channel, int route,
+                                  const std::vector<int>& presets, int dwell_sec, int speed)
+{
+    // 先删除旧路线 (忽略失败, 可能路线本来就不存在)
+    NET_DVR_PTZCruise_Other(user_id, channel, DEL_SEQ, (BYTE)route, 0, 0);
+
+    // 逐个添加预置点
+    bool all_ok = true;
+    for (int i = 0; i < static_cast<int>(presets.size()); i++)
+    {
+        if (!NET_DVR_PTZCruise_Other(user_id, channel,
+                FILL_PRE_SEQ, (BYTE)route, (BYTE)i, (WORD)presets[i]))
+        {
+            printf("[Cruise] FILL_PRE_SEQ failed: route=%d, idx=%d, preset=%d, err=%d\n",
+                   route, i, presets[i], NET_DVR_GetLastError());
+            all_ok = false;
+        }
+    }
+
+    // 用 NET_DVR_CRUISE_PARA 配置驻留时间和速度 (比 SET_SEQ_DWELL 更可靠)
+    NET_DVR_CRUISE_PARA cruise_para = {0};
+    cruise_para.dwSize = sizeof(NET_DVR_CRUISE_PARA);
+    for (int i = 0; i < static_cast<int>(presets.size()) && i < CRUISE_MAX_PRESET_NUMS; i++)
+    {
+        cruise_para.byPresetNo[i]    = (BYTE)presets[i];
+        cruise_para.byCruiseSpeed[i] = (BYTE)speed;
+        cruise_para.wDwellTime[i]    = (WORD)dwell_sec;
+    }
+    cruise_para.byEnableThisCruise = 1;
+
+    if (!NET_DVR_SetDVRConfig(user_id, NET_DVR_SET_CRUISE, channel,
+                               &cruise_para, sizeof(NET_DVR_CRUISE_PARA)))
+    {
+        printf("[Cruise] NET_DVR_SET_CRUISE failed: route=%d, err=%d\n",
+               route, NET_DVR_GetLastError());
+        // 配置 API 失败时, 回退用 SET_SEQ_DWELL 逐个设置
+        for (int i = 0; i < static_cast<int>(presets.size()); i++)
+        {
+            NET_DVR_PTZCruise_Other(user_id, channel,
+                SET_SEQ_DWELL, (BYTE)route, (BYTE)i, (WORD)dwell_sec);
+            NET_DVR_PTZCruise_Other(user_id, channel,
+                SET_SEQ_SPEED, (BYTE)route, (BYTE)i, (WORD)speed);
+        }
+    }
+
+    return all_ok;
+}
+
+bool HKCamera::ptzClearAllPresets(int user_id, int channel)
+{
+    // CLE_ALL_PRESET(53): 清除所有预置点
+    return NET_DVR_PTZPreset_Other(user_id, channel, CLE_ALL_PRESET, 0);
+}
+
+// ============================================================
 // 聚焦控制
 // ============================================================
 

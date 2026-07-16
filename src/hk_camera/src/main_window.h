@@ -78,6 +78,15 @@ private slots:
     void onCruiseStart();
     void onCruiseStop();
     void onCruiseTick();
+    void onQueryPresets();
+
+    // ---- 硬件巡航 ----
+    void onHwCruiseSave();
+    void onHwCruiseStart();
+    void onHwCruiseStop();
+    void onHwCruiseClear();
+    void onHwCruiseQuery();
+    void onClearAllPresets();
 
     // ---- 聚焦控制 ----
     void onFocusNearPressed();
@@ -133,6 +142,7 @@ private:
     QPushButton* preset_set_btn_;
     QPushButton* preset_goto_btn_;
     QPushButton* preset_clear_btn_;
+    QPushButton* preset_clear_all_btn_;
 
     // ---- 聚焦控件 ----
     QGroupBox*   focus_group_;
@@ -156,6 +166,18 @@ private:
     QTimer*      cruise_timer_ = nullptr;
     int          cruise_index_ = 0;
     bool         cruise_running_ = false;
+
+    // ---- 硬件巡航 ----
+    QGroupBox*   hw_cruise_group_;
+    QSpinBox*    hw_cruise_route_spin_;    // 路线号 1~8
+    QLineEdit*   hw_cruise_presets_edit_;  // "1,3,5,7"
+    QSpinBox*    hw_cruise_dwell_spin_;   // 驻留秒数
+    QSpinBox*    hw_cruise_speed_spin_;   // 速度 1~7
+    QPushButton* hw_cruise_save_btn_;
+    QPushButton* hw_cruise_start_btn_;
+    QPushButton* hw_cruise_stop_btn_;
+    QPushButton* hw_cruise_clear_btn_;
+    QPushButton* hw_cruise_query_btn_;
 
     // ---- OCR 识别 ----
     QGroupBox*   ocr_group_;

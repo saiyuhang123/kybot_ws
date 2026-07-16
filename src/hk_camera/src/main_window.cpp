@@ -210,17 +210,23 @@ void MainWindow::setupUI()
     preset_set_btn_   = new QPushButton("设");
     preset_goto_btn_  = new QPushButton("调");
     preset_clear_btn_ = new QPushButton("清");
+    preset_clear_all_btn_ = new QPushButton("清全部");
     preset_spin_->setRange(1, 256);
     preset_spin_->setValue(1);
     preset_spin_->setMaximumHeight(24);
     preset_spin_->setMaximumWidth(55);
     for (auto* b : {preset_set_btn_, preset_goto_btn_, preset_clear_btn_})
         { b->setMaximumHeight(24); b->setMaximumWidth(35); }
+    preset_clear_all_btn_->setMaximumHeight(24);
+    preset_clear_all_btn_->setStyleSheet(
+        "QPushButton { background-color: #b71c1c; color: white; font-size: 10px; }"
+        "QPushButton:hover { background-color: #c62828; }");
     preset_layout->addWidget(new QLabel("预置点:"));
     preset_layout->addWidget(preset_spin_);
     preset_layout->addWidget(preset_set_btn_);
     preset_layout->addWidget(preset_goto_btn_);
     preset_layout->addWidget(preset_clear_btn_);
+    preset_layout->addWidget(preset_clear_all_btn_);
     preset_layout->addStretch();
     ptz_layout->addLayout(preset_layout, 4, 0, 1, 5);
 
@@ -257,6 +263,74 @@ void MainWindow::setupUI()
 
     cruise_group_->setEnabled(false);
     right_layout->addWidget(cruise_group_);
+
+    // ---- 4b. 硬件巡航 (设备端执行) ----
+    hw_cruise_group_ = new QGroupBox("硬件巡航 (设备端)");
+    auto* hw_cruise_layout = new QGridLayout(hw_cruise_group_);
+    hw_cruise_layout->setSpacing(3);
+    hw_cruise_layout->setContentsMargins(4, 4, 4, 4);
+
+    // 第一行: 路线号 + 预置点序列
+    hw_cruise_layout->addWidget(new QLabel("路线:"), 0, 0);
+    hw_cruise_route_spin_ = new QSpinBox();
+    hw_cruise_route_spin_->setRange(1, 8);
+    hw_cruise_route_spin_->setValue(1);
+    hw_cruise_route_spin_->setMaximumHeight(26);
+    hw_cruise_route_spin_->setMaximumWidth(50);
+    hw_cruise_layout->addWidget(hw_cruise_route_spin_, 0, 1);
+
+    hw_cruise_layout->addWidget(new QLabel("序列:"), 0, 2);
+    hw_cruise_presets_edit_ = new QLineEdit("1,2,3");
+    hw_cruise_presets_edit_->setToolTip("逗号分隔, 例如: 1,3,5,7");
+    hw_cruise_presets_edit_->setMaximumHeight(26);
+    hw_cruise_layout->addWidget(hw_cruise_presets_edit_, 0, 3, 1, 3);
+
+    // 第二行: 驻留 + 速度
+    hw_cruise_layout->addWidget(new QLabel("驻留:"), 1, 0);
+    hw_cruise_dwell_spin_ = new QSpinBox();
+    hw_cruise_dwell_spin_->setRange(1, 255);
+    hw_cruise_dwell_spin_->setValue(5);
+    hw_cruise_dwell_spin_->setSuffix("秒");
+    hw_cruise_dwell_spin_->setMaximumHeight(26);
+    hw_cruise_dwell_spin_->setMaximumWidth(65);
+    hw_cruise_layout->addWidget(hw_cruise_dwell_spin_, 1, 1);
+
+    hw_cruise_layout->addWidget(new QLabel("速度:"), 1, 2);
+    hw_cruise_speed_spin_ = new QSpinBox();
+    hw_cruise_speed_spin_->setRange(1, 7);
+    hw_cruise_speed_spin_->setValue(4);
+    hw_cruise_speed_spin_->setMaximumHeight(26);
+    hw_cruise_speed_spin_->setMaximumWidth(50);
+    hw_cruise_layout->addWidget(hw_cruise_speed_spin_, 1, 3);
+
+    // 第三行: 按钮
+    hw_cruise_save_btn_  = new QPushButton("保存路线");
+    hw_cruise_start_btn_ = new QPushButton("▶启动");
+    hw_cruise_stop_btn_  = new QPushButton("■停止");
+    hw_cruise_clear_btn_ = new QPushButton("清除路线");
+    hw_cruise_query_btn_ = new QPushButton("查看路线");
+    for (auto* b : {hw_cruise_save_btn_, hw_cruise_start_btn_,
+                    hw_cruise_stop_btn_, hw_cruise_clear_btn_,
+                    hw_cruise_query_btn_})
+        b->setMaximumHeight(26);
+    hw_cruise_save_btn_->setStyleSheet(
+        "QPushButton { background-color: #1565c0; color: white; font-weight: bold; }"
+        "QPushButton:hover { background-color: #1976d2; }");
+    hw_cruise_start_btn_->setStyleSheet(
+        "QPushButton { background-color: #2e7d32; color: white; font-weight: bold; }"
+        "QPushButton:hover { background-color: #388e3c; }");
+    hw_cruise_stop_btn_->setStyleSheet(
+        "QPushButton { background-color: #c62828; color: white; font-weight: bold; }"
+        "QPushButton:hover { background-color: #d32f2f; }");
+
+    hw_cruise_layout->addWidget(hw_cruise_save_btn_,  2, 0, 1, 2);
+    hw_cruise_layout->addWidget(hw_cruise_start_btn_, 2, 2);
+    hw_cruise_layout->addWidget(hw_cruise_stop_btn_,  2, 3);
+    hw_cruise_layout->addWidget(hw_cruise_clear_btn_, 2, 4);
+    hw_cruise_layout->addWidget(hw_cruise_query_btn_, 2, 5);
+
+    hw_cruise_group_->setEnabled(false);
+    right_layout->addWidget(hw_cruise_group_);
 
     // ---- 5. OCR (紧凑) ----
     ocr_group_ = new QGroupBox("OCR 文字识别");
@@ -343,6 +417,7 @@ void MainWindow::setupConnections()
     connect(preset_set_btn_,   &QPushButton::clicked, this, &MainWindow::onPtzSetPreset);
     connect(preset_goto_btn_,  &QPushButton::clicked, this, &MainWindow::onPtzGotoPreset);
     connect(preset_clear_btn_, &QPushButton::clicked, this, &MainWindow::onPtzClearPreset);
+    connect(preset_clear_all_btn_, &QPushButton::clicked, this, &MainWindow::onClearAllPresets);
     // 聚焦
     connect(focus_near_btn_,    &QPushButton::pressed,  this, &MainWindow::onFocusNearPressed);
     connect(focus_near_btn_,    &QPushButton::released, this, &MainWindow::onFocusStop);
@@ -354,6 +429,12 @@ void MainWindow::setupConnections()
     // 巡航
     connect(cruise_start_btn_, &QPushButton::clicked, this, &MainWindow::onCruiseStart);
     connect(cruise_stop_btn_,  &QPushButton::clicked, this, &MainWindow::onCruiseStop);
+    // 硬件巡航
+    connect(hw_cruise_save_btn_,  &QPushButton::clicked, this, &MainWindow::onHwCruiseSave);
+    connect(hw_cruise_start_btn_, &QPushButton::clicked, this, &MainWindow::onHwCruiseStart);
+    connect(hw_cruise_stop_btn_,  &QPushButton::clicked, this, &MainWindow::onHwCruiseStop);
+    connect(hw_cruise_clear_btn_, &QPushButton::clicked, this, &MainWindow::onHwCruiseClear);
+    connect(hw_cruise_query_btn_, &QPushButton::clicked, this, &MainWindow::onHwCruiseQuery);
 
     // OCR
     connect(ocr_btn_, &QPushButton::clicked, this, &MainWindow::onOcrRecognize);
@@ -742,6 +823,144 @@ void MainWindow::onCruiseStop()
     log("巡航已停止");
 }
 
+// ============================================================
+// 硬件巡航 (设备端执行)
+// ============================================================
+
+void MainWindow::onHwCruiseSave()
+{
+    if (user_id_ < 0) return;
+
+    int ch    = channel_combo_->currentData().toInt();
+    int route = hw_cruise_route_spin_->value();
+
+    // 解析预置点序列
+    QString text = hw_cruise_presets_edit_->text();
+    QStringList parts = text.split(",", Qt::SkipEmptyParts);
+    std::vector<int> presets;
+    for (const auto& p : parts)
+    {
+        bool ok;
+        int v = p.trimmed().toInt(&ok);
+        if (ok && v >= 1 && v <= 256)
+            presets.push_back(v);
+    }
+    if (presets.empty())
+    {
+        log("硬件巡航: 无效的预置点序列");
+        return;
+    }
+
+    int dwell = hw_cruise_dwell_spin_->value();
+    int speed = hw_cruise_speed_spin_->value();
+
+    log(QString("硬件巡航: 配置路线%1, %2个预置点, 驻留%3秒, 速度%4")
+        .arg(route).arg(presets.size()).arg(dwell).arg(speed));
+
+    if (camera_->ptzCruiseSetRoute(user_id_, ch, route, presets, dwell, speed))
+        log(QString("  ✓ 路线%1 配置完成, %2个点").arg(route).arg(presets.size()));
+    else
+        log(QString("  ⚠ 路线%1 配置部分失败, 请检查终端日志").arg(route));
+
+    // 配置后立即查询验证
+    std::vector<int> q_presets, q_dwells, q_speeds;
+    if (camera_->ptzCruiseQuery(user_id_, ch, route, q_presets, q_dwells, q_speeds))
+    {
+        log(QString("  验证: 路线%1 实际有%2个点").arg(route).arg(q_presets.size()));
+        for (size_t i = 0; i < q_presets.size(); i++)
+            log(QString("    [%1] 预置点=%2 驻留=%3秒 速度=%4")
+                .arg(i+1).arg(q_presets[i]).arg(q_dwells[i]).arg(q_speeds[i]));
+    }
+    else
+    {
+        log(QString("  验证: 查询路线%1 失败, 错误码=%2").arg(route).arg(camera_->getLastError()));
+    }
+}
+
+void MainWindow::onHwCruiseStart()
+{
+    if (user_id_ < 0) return;
+
+    int ch    = channel_combo_->currentData().toInt();
+    int route = hw_cruise_route_spin_->value();
+
+    if (camera_->ptzCruiseStart(user_id_, ch, route))
+        log(QString("✓ 硬件巡航启动 (路线%1)").arg(route));
+    else
+        log(QString("✗ 硬件巡航启动失败, 错误码=%1").arg(camera_->getLastError()));
+}
+
+void MainWindow::onHwCruiseStop()
+{
+    if (user_id_ < 0) return;
+
+    int ch    = channel_combo_->currentData().toInt();
+    int route = hw_cruise_route_spin_->value();
+
+    if (camera_->ptzCruiseStop(user_id_, ch, route))
+        log(QString("✓ 硬件巡航停止 (路线%1)").arg(route));
+    else
+        log(QString("✗ 硬件巡航停止失败, 错误码=%1").arg(camera_->getLastError()));
+}
+
+void MainWindow::onHwCruiseClear()
+{
+    if (user_id_ < 0) return;
+
+    int ch    = channel_combo_->currentData().toInt();
+    int route = hw_cruise_route_spin_->value();
+
+    if (camera_->ptzCruiseDeleteRoute(user_id_, ch, route))
+        log(QString("✓ 硬件巡航路线%1 已清除").arg(route));
+    else
+        log(QString("✗ 清除路线失败, 错误码=%1").arg(camera_->getLastError()));
+}
+
+void MainWindow::onHwCruiseQuery()
+{
+    if (user_id_ < 0) return;
+
+    int ch    = channel_combo_->currentData().toInt();
+    int route = hw_cruise_route_spin_->value();
+
+    std::vector<int> presets, dwells, speeds;
+    if (!camera_->ptzCruiseQuery(user_id_, ch, route, presets, dwells, speeds))
+    {
+        log(QString("✗ 查询路线%1 失败, 错误码=%2").arg(route).arg(camera_->getLastError()));
+        return;
+    }
+
+    if (presets.empty())
+    {
+        log(QString("路线%1: 空 (无预置点)").arg(route));
+        return;
+    }
+
+    log(QString("路线%1: %2个预置点").arg(route).arg(presets.size()));
+    for (size_t i = 0; i < presets.size(); i++)
+    {
+        log(QString("  [%1] 预置点=%2  驻留=%3秒  速度=%4")
+            .arg(i + 1).arg(presets[i]).arg(dwells[i]).arg(speeds[i]));
+    }
+}
+
+void MainWindow::onClearAllPresets()
+{
+    if (user_id_ < 0) return;
+
+    int ch = channel_combo_->currentData().toInt();
+
+    auto btn = QMessageBox::question(this, "确认",
+        "确定要清除所有预置点吗？\n此操作不可撤销。",
+        QMessageBox::Yes | QMessageBox::No);
+    if (btn != QMessageBox::Yes) return;
+
+    if (camera_->ptzClearAllPresets(user_id_, ch))
+        log("✓ 所有预置点已清除");
+    else
+        log(QString("✗ 清除全部预置点失败, 错误码=%1").arg(camera_->getLastError()));
+}
+
 void MainWindow::onDecodedImage(const QImage& image)
 {
     if (image.isNull()) return;
@@ -818,6 +1037,7 @@ void MainWindow::setControlsEnabled(bool enabled)
     capture_btn_->setEnabled(enabled);
     ptz_group_->setEnabled(enabled);
     cruise_group_->setEnabled(enabled);
+    hw_cruise_group_->setEnabled(enabled);
     ocr_group_->setEnabled(enabled);
 }
 
