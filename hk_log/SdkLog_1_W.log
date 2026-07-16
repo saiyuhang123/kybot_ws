@@ -1,50 +1,45 @@
-[2026-07-16 11:55:31.354][INF] The COM:HCCoreBase ver is 6.1.4.15, 2020_03_05. Async:1.
-[2026-07-16 11:55:31.354][INF] The COM:Core ver is 6.1.11.5, 2025_12_04. Async:1.
-[2026-07-16 11:55:31.354][INF] This HCNetSDK ver is 6.1.11.5 Ver 2025_12_04.
-[2026-07-16 11:55:31.358][INF] COM_Login dev 192.168.1.64:8000.
-[2026-07-16 11:55:31.358][INF] dwTotalNum[2048]
-[2026-07-16 11:55:31.358][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x10000 port=48282
-[2026-07-16 11:55:31.358][INF] LogonDev1 in[192.168.1.64:8000]
-[2026-07-16 11:55:31.360][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
-[2026-07-16 11:55:31.406][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
-[2026-07-16 11:55:48.438][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPreview.so] SUCC
-[2026-07-16 11:55:48.438][INF] AbilityAnalyze---Init-- start
-[2026-07-16 11:55:48.444][DBG] AbilityAnalyze---Init-- over, DeviceList path [/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/LocalXml/DeviceList.xml], load result[0]
-[2026-07-16 11:55:48.444][DBG] COM_Preview_GetSDKBuildVersion
-[2026-07-16 11:55:48.444][INF] The COM:Preview ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.445][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52684
-[2026-07-16 11:55:48.448][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[13] is not QULIFIED(1)
-[2026-07-16 11:55:48.448][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52700
-[2026-07-16 11:55:48.452][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[14] is not QULIFIED(1)
-[2026-07-16 11:55:48.453][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52712
-[2026-07-16 11:55:48.457][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52716
-[2026-07-16 11:55:48.464][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCVoiceTalk.so] SUCC
-[2026-07-16 11:55:48.464][INF] The COM:VoiceTalk ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.467][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCGeneralCfgMgr.so] SUCC
-[2026-07-16 11:55:48.467][INF] The COM:HCGeneralCfgMgr ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.469][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPlayBack.so] SUCC
-[2026-07-16 11:55:48.470][INF] The COM:HCPlayback ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.471][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCIndustry.so] SUCC
-[2026-07-16 11:55:48.472][INF] The COM:HCIndustry ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.473][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCDisplay.so] SUCC
-[2026-07-16 11:55:48.473][INF] The COM:HCDisplay ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.475][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCAlarm.so] SUCC
-[2026-07-16 11:55:48.475][INF] The COM:HCAlarm ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.476][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x1100e1] dwDVRReturn[0]  dwoutBufSize[148]
-[2026-07-16 11:55:48.476][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x1100e1 port=52718
-[2026-07-16 11:55:48.480][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[13] is not QULIFIED(1)
-[2026-07-16 11:55:48.480][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52724
-[2026-07-16 11:55:48.483][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[14] is not QULIFIED(1)
-[2026-07-16 11:55:48.484][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52736
-[2026-07-16 11:55:48.487][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[14] is not QULIFIED(1)
-[2026-07-16 11:55:48.487][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52750
-[2026-07-16 11:55:48.496][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52766
-[2026-07-16 11:55:48.680][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52774
-[2026-07-16 11:55:48.686][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52784
-[2026-07-16 11:55:48.874][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30210 port=52794
-[2026-07-16 12:23:49.902][INF] Private connect 192.168.1.64:8000 sock=250 this=0xef726084 cmd=0x30200 port=48306
-[2026-07-16 12:24:00.498][INF] Private connect 192.168.1.64:8000 sock=250 this=0xef726084 cmd=0x30200 port=52076
-[2026-07-16 12:25:31.792][INF] Private connect 192.168.1.64:8000 sock=250 this=0xef726084 cmd=0x30200 port=48376
-[2026-07-16 12:34:40.984][INF] COM_Logout[0][1]
-[2026-07-16 12:34:40.986][DBG] CUserMgr::UnRegisterHeartProxy[0]
-[2026-07-16 12:34:40.986][INF] Private connect 192.168.1.64:8000 sock=18 this=0xef726084 cmd=0x10100 port=56852
+[2026-07-16 15:07:19.600][INF] The COM:HCCoreBase ver is 6.1.4.15, 2020_03_05. Async:1.
+[2026-07-16 15:07:19.600][INF] The COM:Core ver is 6.1.11.5, 2025_12_04. Async:1.
+[2026-07-16 15:07:19.600][INF] This HCNetSDK ver is 6.1.11.5 Ver 2025_12_04.
+[2026-07-16 15:08:45.303][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-16 15:08:45.303][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x10000 port=33564
+[2026-07-16 15:08:45.303][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-16 15:08:45.306][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-16 15:08:45.304][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-16 15:08:45.304][INF] dwTotalNum[2048]
+[2026-07-16 15:08:45.304][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x10000 port=33576
+[2026-07-16 15:08:45.304][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-16 15:08:45.308][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-16 15:08:45.354][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-16 15:08:45.362][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-16 15:10:07.562][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-16 15:10:07.562][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x10000 port=39978
+[2026-07-16 15:10:07.562][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-16 15:10:07.562][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-16 15:10:07.563][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x10000 port=39976
+[2026-07-16 15:10:07.563][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-16 15:10:07.567][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-16 15:10:07.568][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-16 15:10:07.614][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-16 15:10:07.614][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-16 15:10:08.738][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPreview.so] SUCC
+[2026-07-16 15:10:08.738][INF] AbilityAnalyze---Init-- start
+[2026-07-16 15:10:08.740][DBG] AbilityAnalyze---Init-- over, DeviceList path [/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/LocalXml/DeviceList.xml], load result[0]
+[2026-07-16 15:10:08.740][DBG] COM_Preview_GetSDKBuildVersion
+[2026-07-16 15:10:08.740][INF] The COM:Preview ver is 6.1.11.5, 2025_12_04.
+[2026-07-16 15:10:08.736][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30200 port=40000
+[2026-07-16 15:10:08.743][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30200 port=40006
+[2026-07-16 15:10:11.965][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30009 port=40018
+[2026-07-16 15:10:11.965][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30009 port=40022
+[2026-07-16 15:10:34.054][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30200 port=39336
+[2026-07-16 15:10:34.055][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30200 port=39350
+[2026-07-16 15:10:37.283][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30009 port=39364
+[2026-07-16 15:10:37.283][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30009 port=39366
+[2026-07-16 15:11:18.755][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30200 port=53896
+[2026-07-16 15:11:18.756][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30200 port=53910
+[2026-07-16 15:11:22.000][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30009 port=53920
+[2026-07-16 15:11:22.001][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30009 port=53924
+[2026-07-16 15:11:47.888][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30200 port=36992
+[2026-07-16 15:11:47.890][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30200 port=37006
+[2026-07-16 15:11:51.117][INF] Private connect 192.168.1.64:8000 sock=156 this=0xda651b94 cmd=0x30009 port=37022
+[2026-07-16 15:11:51.116][INF] Private connect 192.168.1.64:8000 sock=158 this=0x1f72e624 cmd=0x30009 port=37014

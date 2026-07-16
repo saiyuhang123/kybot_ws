@@ -63,11 +63,15 @@ ament_target_dependencies(mission_executor
 )
 
 # ---- 安装规则 ----
-install(TARGETS ${PROJECT_NAME} mission_executor
+install(TARGETS ${PROJECT_NAME}
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
+)
+
+install(TARGETS mission_executor
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 install(FILES plugins_description.xml

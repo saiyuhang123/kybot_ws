@@ -1,22 +1,39 @@
-<pre>26-07-16 11:55:48.469][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPlayBack.so] SUCC
-[2026-07-16 11:55:48.470][INF] The COM:HCPlayback ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.471][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCIndustry.so] SUCC
-[2026-07-16 11:55:48.472][INF] The COM:HCIndustry ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.473][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCDisplay.so] SUCC
-[2026-07-16 11:55:48.473][INF] The COM:HCDisplay ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.475][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCAlarm.so] SUCC
-[2026-07-16 11:55:48.475][INF] The COM:HCAlarm ver is 6.1.11.5, 2025_12_04.
-[2026-07-16 11:55:48.476][DBG] Inner_SetDVRConfig, set dwCommToDVR[0x1100e1] dwDVRReturn[0]  dwoutBufSize[148]
-[2026-07-16 11:55:48.476][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x1100e1 port=52718
-[Cruise] NET_DVR_SET_CRUISE failed: route=1, err=23
-[2026-07-16 11:55:48.480][ERR] PRO_RecvProData_NewMemory pRecv-&gt;uiDvrStatus[13] is not QULIFIED(1)
-[2026-07-16 11:55:48.480][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52724
-[2026-07-16 11:55:48.483][ERR] PRO_RecvProData_NewMemory pRecv-&gt;uiDvrStatus[14] is not QULIFIED(1)
-[2026-07-16 11:55:48.484][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52736
-[2026-07-16 11:55:48.487][ERR] PRO_RecvProData_NewMemory pRecv-&gt;uiDvrStatus[14] is not QULIFIED(1)
-[2026-07-16 11:55:48.487][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52750
-[2026-07-16 11:55:48.496][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52766
-[2026-07-16 11:55:48.680][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52774
-[2026-07-16 11:55:48.686][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30200 port=52784
-[2026-07-16 11:55:48.874][INF] Private connect 192.168.1.64:8000 sock=166 this=0xef726084 cmd=0x30210 port=52794
-</pre>
+[INFO] [launch]: All log files can be found below /home/nvidia/.ros/log/2026-07-16-14-25-43-581302-nvidia-desktop-200899
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [mission_executor-1]: process started with pid [200907]
+[mission_executor-1] [INFO] [1784183143.748118410] [mission_executor]: MissionExecutor ready
+[mission_executor-1] [INFO] [1784183143.748351860] [mission_executor]: Registered action handler: 'log'
+[mission_executor-1] [INFO] [1784183257.839228136] [mission_executor]: Mission started: 4 waypoints
+[mission_executor-1] [INFO] [1784183257.847336348] [mission_executor]: [1/4] Navigating...
+[mission_executor-1] [INFO] [1784183258.730927775] [mission_executor]: [1/4] Arrived
+[mission_executor-1] [INFO] [1784183258.731056900] [mission_executor]: [1/4] PTZ check: pan=1
+[mission_executor-1] [INFO] [1784183258.731095654] [mission_executor]: [1/4] PTZ → preset 1
+[mission_executor-1] [INFO] [1784183258.731106663] [mission_executor]: setPTZPose: checking service...
+[mission_executor-1] [INFO] [1784183258.731514200] [mission_executor]: setPTZPose: service available, sending request pan=1
+[mission_executor-1] [INFO] [1784183258.732544739] [mission_executor]: setPTZPose result: success=0, msg=Not logged in
+[mission_executor-1] [WARN] [1784183258.732590597] [mission_executor]: [1/4] PTZ failed, continuing
+[mission_executor-1] [INFO] [1784183261.732679376] [mission_executor]: [1/4] Capture check: do_capture=1
+[mission_executor-1] [INFO] [1784183261.732831830] [mission_executor]: [1/4] Capturing...
+[mission_executor-1] [INFO] [1784183261.732851095] [mission_executor]: capturePicture: checking service...
+[mission_executor-1] [INFO] [1784183261.733286505] [mission_executor]: capturePicture: service available, sending request
+[mission_executor-1] [INFO] [1784183261.734651395] [mission_executor]: capturePicture result: success=0, msg=Not logged in
+[mission_executor-1] [WARN] [1784183261.734723814] [mission_executor]: [1/4] Capture failed, continuing
+[mission_executor-1] [INFO] [1784183261.734751623] [mission_executor]: [2/4] Navigating...
+[mission_executor-1] [INFO] [1784183274.234414981] [mission_executor]: [2/4] Arrived
+[mission_executor-1] [INFO] [1784183274.234507849] [mission_executor]: [2/4] PTZ check: pan=2
+[mission_executor-1] [INFO] [1784183274.234544010] [mission_executor]: [2/4] PTZ → preset 2
+[mission_executor-1] [INFO] [1784183274.234555115] [mission_executor]: setPTZPose: checking service...
+[mission_executor-1] [INFO] [1784183274.234969340] [mission_executor]: setPTZPose: service available, sending request pan=2
+[mission_executor-1] [INFO] [1784183274.239259920] [mission_executor]: setPTZPose result: success=0, msg=Not logged in
+[mission_executor-1] [WARN] [1784183274.239352372] [mission_executor]: [2/4] PTZ failed, continuing
+[mission_executor-1] [INFO] [1784183277.239468765] [mission_executor]: [2/4] Capture check: do_capture=1
+[mission_executor-1] [INFO] [1784183277.239621764] [mission_executor]: [2/4] Capturing...
+[mission_executor-1] [INFO] [1784183277.239637380] [mission_executor]: capturePicture: checking service...
+[mission_executor-1] [INFO] [1784183277.240069622] [mission_executor]: capturePicture: service available, sending request
+[mission_executor-1] [INFO] [1784183277.240543658] [mission_executor]: capturePicture result: success=0, msg=Not logged in
+[mission_executor-1] [WARN] [1784183277.240579500] [mission_executor]: [2/4] Capture failed, continuing
+[mission_executor-1] [INFO] [1784183277.240603437] [mission_executor]: [3/4] Navigating...
+[mission_executor-1] [ERROR] [1784183397.241871719] [mission_executor]: Nav timeout
+[mission_executor-1] [ERROR] [1784183397.242214582] [mission_executor]: Navigation failed at point 3
+[mission_executor-1] [INFO] [1784183397.242237942] [mission_executor]: Mission completed: 4 waypoints
+

@@ -55,6 +55,9 @@ void MissionExecutor::setupClients()
 
     capture_client_ = create_client<hk_camera::srv::CapturePicture>(
         "/hk_camera/capture");
+
+    login_client_ = create_client<std_srvs::srv::Trigger>(
+        "/hk_camera/login");
 }
 
 // ============================================================
@@ -116,6 +119,24 @@ void MissionExecutor::executeMission()
 {
     const size_t total = waypoints_.size();
 
+    // ---- 自动登录相机 ----
+    RCLCPP_INFO(get_logger(), "Checking camera login...");
+    if (login_client_->wait_for_service(3s))
+    {
+        auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+        auto future = login_client_->async_send_request(req);
+        if (future.wait_for(10s) == std::future_status::ready)
+        {
+            auto res = future.get();
+            RCLCPP_INFO(get_logger(), "Camera login: %s (success=%d)",
+                        res->message.c_str(), res->success);
+        }
+    }
+    else
+    {
+        RCLCPP_WARN(get_logger(), "Login service not available, PTZ/capture may fail");
+    }
+
     for (size_t i = 0; i < total; i++)
     {
         if (mission_cancel_)
@@ -144,6 +165,8 @@ void MissionExecutor::executeMission()
         RCLCPP_INFO(get_logger(), "[%zu/%zu] Arrived", i + 1, total);
 
         // ---- Step 2: 设置云台 ----
+        RCLCPP_INFO(get_logger(), "[%zu/%zu] PTZ check: pan=%.0f",
+                    i + 1, total, wp.pan);
         if (wp.pan > 0)
         {
             snprintf(buf, sizeof(buf), "Setting PTZ at point %zu/%zu", i + 1, total);
@@ -156,11 +179,17 @@ void MissionExecutor::executeMission()
                 RCLCPP_WARN(get_logger(), "[%zu/%zu] PTZ failed, continuing",
                             i + 1, total);
             }
+            else
+            {
+                RCLCPP_INFO(get_logger(), "[%zu/%zu] PTZ OK", i + 1, total);
+            }
             // 等待云台到位
             std::this_thread::sleep_for(std::chrono::seconds(3));
         }
 
         // ---- Step 3: 拍照 ----
+        RCLCPP_INFO(get_logger(), "[%zu/%zu] Capture check: do_capture=%d",
+                    i + 1, total, wp.do_capture);
         if (wp.do_capture)
         {
             snprintf(buf, sizeof(buf), "Capturing at point %zu/%zu", i + 1, total);
@@ -238,7 +267,7 @@ bool MissionExecutor::navigateTo(const geometry_msgs::msg::PoseStamped& pose)
 
     // 等待结果
     auto result_future = nav_client_->async_get_result(goal_handle);
-    auto status = result_future.wait_for(120s);  // 最多等 2 分钟
+    auto status = result_future.wait_for(600s);  // 最多等 10 分钟
     if (status != std::future_status::ready)
     {
         RCLCPP_ERROR(get_logger(), "Nav timeout");
@@ -252,11 +281,13 @@ bool MissionExecutor::navigateTo(const geometry_msgs::msg::PoseStamped& pose)
 
 bool MissionExecutor::setPTZPose(float pan, float tilt, float zoom)
 {
+    RCLCPP_INFO(get_logger(), "setPTZPose: checking service...");
     if (!ptz_client_->wait_for_service(3s))
     {
-        RCLCPP_ERROR(get_logger(), "SetPTZPose service not available");
+        RCLCPP_ERROR(get_logger(), "SetPTZPose service NOT available at /hk_camera/set_ptz_pose");
         return false;
     }
+    RCLCPP_INFO(get_logger(), "setPTZPose: service available, sending request pan=%.0f", pan);
 
     auto request = std::make_shared<hk_camera::srv::SetPTZPose::Request>();
     request->pan = pan;
@@ -271,25 +302,24 @@ bool MissionExecutor::setPTZPose(float pan, float tilt, float zoom)
     }
 
     auto response = future.get();
-    if (!response->success)
-    {
-        RCLCPP_WARN(get_logger(), "SetPTZPose failed: %s",
-                    response->message.c_str());
-    }
+    RCLCPP_INFO(get_logger(), "setPTZPose result: success=%d, msg=%s",
+                response->success, response->message.c_str());
     return response->success;
 }
 
 bool MissionExecutor::capturePicture()
 {
+    RCLCPP_INFO(get_logger(), "capturePicture: checking service...");
     if (!capture_client_->wait_for_service(3s))
     {
-        RCLCPP_ERROR(get_logger(), "CapturePicture service not available");
+        RCLCPP_ERROR(get_logger(), "CapturePicture service NOT available at /hk_camera/capture");
         return false;
     }
+    RCLCPP_INFO(get_logger(), "capturePicture: service available, sending request");
 
     auto request = std::make_shared<hk_camera::srv::CapturePicture::Request>();
-    request->quality = 0;  // 最高质量
-    request->save_path = "";  // 自动生成路径
+    request->quality = 0;
+    request->save_path = "";
 
     auto future = capture_client_->async_send_request(request);
     if (future.wait_for(10s) != std::future_status::ready)
@@ -299,11 +329,8 @@ bool MissionExecutor::capturePicture()
     }
 
     auto response = future.get();
-    if (!response->success)
-    {
-        RCLCPP_WARN(get_logger(), "CapturePicture failed: %s",
-                    response->message.c_str());
-    }
+    RCLCPP_INFO(get_logger(), "capturePicture result: success=%d, msg=%s",
+                response->success, response->message.c_str());
     return response->success;
 }
 
