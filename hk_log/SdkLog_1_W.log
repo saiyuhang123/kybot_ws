@@ -1,9 +1,45 @@
-[2026-07-29 16:21:45.895][INF] The COM:HCCoreBase ver is 6.1.4.15, 2020_03_05. Async:1.
-[2026-07-29 16:21:45.896][INF] The COM:Core ver is 6.1.11.5, 2025_12_04. Async:1.
-[2026-07-29 16:21:45.897][INF] This HCNetSDK ver is 6.1.11.5 Ver 2025_12_04.
-[2026-07-29 16:22:44.471][INF] COM_Login dev 192.168.1.64:8000.
-[2026-07-29 16:22:44.471][INF] dwTotalNum[2048]
-[2026-07-29 16:22:47.554][ERR] Private connect 192.168.1.64:8000 sock=147 this=0xf9f64594 cmd=0x10000 sys_err=113, timeout= 3500 port=0
-[2026-07-29 16:22:47.554][DBG] Link_CreateLink, pLink->Start failed
-[2026-07-29 16:22:47.554][ERR] [192.168.1.64:8000]LogonDevice Link_CreateLink fail[7].
-[2026-07-29 16:22:47.554][ERR] CMemberMgrBase::AllocIndex2, MemberStart Failed, iIndex[0]
+[2026-07-29 19:21:39.626][INF] The COM:HCCoreBase ver is 6.1.4.15, 2020_03_05. Async:1.
+[2026-07-29 19:21:39.627][INF] The COM:Core ver is 6.1.11.5, 2025_12_04. Async:1.
+[2026-07-29 19:21:39.627][INF] This HCNetSDK ver is 6.1.11.5 Ver 2025_12_04.
+[2026-07-29 19:26:49.126][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-29 19:26:49.126][INF] dwTotalNum[2048]
+[2026-07-29 19:26:49.129][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x10000 port=33076
+[2026-07-29 19:26:49.129][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-29 19:26:49.134][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-29 19:26:49.181][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-29 19:27:24.337][DBG] CComBase::Load, Load szDllPath[/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/libHCPreview.so] SUCC
+[2026-07-29 19:27:24.337][INF] AbilityAnalyze---Init-- start
+[2026-07-29 19:27:24.342][DBG] AbilityAnalyze---Init-- over, DeviceList path [/home/nvidia/kybot_ws/src/HK/C++demo/consoleDemo/linux64/lib/HCNetSDKCom/LocalXml/DeviceList.xml], load result[0]
+[2026-07-29 19:27:24.342][DBG] COM_Preview_GetSDKBuildVersion
+[2026-07-29 19:27:24.342][INF] The COM:Preview ver is 6.1.11.5, 2025_12_04.
+[2026-07-29 19:27:25.345][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=60184
+[2026-07-29 19:27:28.573][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=60200
+[2026-07-29 19:28:12.047][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=45094
+[2026-07-29 19:28:15.279][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=45106
+[2026-07-29 19:28:32.423][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-29 19:28:32.423][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x10000 port=39336
+[2026-07-29 19:28:32.423][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-29 19:28:32.425][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-29 19:28:32.473][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-29 19:29:15.948][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=51328
+[2026-07-29 19:29:19.178][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=43562
+[2026-07-29 19:30:48.442][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=39098
+[2026-07-29 19:30:52.673][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=34916
+[2026-07-29 19:31:10.899][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-29 19:31:10.900][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x10000 port=35600
+[2026-07-29 19:31:10.900][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-29 19:31:10.903][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-29 19:31:10.953][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-29 19:31:41.992][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=52824
+[2026-07-29 19:31:45.221][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=52836
+[2026-07-29 19:32:59.756][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=47882
+[2026-07-29 19:33:02.988][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=47892
+[2026-07-29 19:33:20.846][INF] COM_Login dev 192.168.1.64:8000.
+[2026-07-29 19:33:20.847][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x10000 port=48034
+[2026-07-29 19:33:20.847][INF] LogonDev1 in[192.168.1.64:8000]
+[2026-07-29 19:33:20.849][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[1300] is not QULIFIED(1)
+[2026-07-29 19:33:20.897][ERR] PRO_RecvProData_NewMemory pRecv->uiDvrStatus[16777315] is not QULIFIED(1)
+[2026-07-29 19:34:07.426][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=43454
+[2026-07-29 19:34:10.657][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=35310
+[2026-07-29 19:35:51.724][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30200 port=35740
+[2026-07-29 19:35:54.951][INF] Private connect 192.168.1.64:8000 sock=147 this=0xf69d0aa4 cmd=0x30009 port=35756
