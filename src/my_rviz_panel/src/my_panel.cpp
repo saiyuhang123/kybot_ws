@@ -6,6 +6,7 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QTimer>
+#include <yaml-cpp/yaml.h>
 #include <fstream>
 #include <sstream>
 
@@ -177,54 +178,71 @@ void MyPanel::onSaveClicked() {
         QMessageBox::warning(this, "Save", "No points to save.");
         return;
     }
-    QString filename = QFileDialog::getSaveFileName(this, "Save", "", "Text (*.txt)");
+    QString filename = QFileDialog::getSaveFileName(
+        this, "Save", "", "YAML (*.yaml *.yml)");
     if (filename.isEmpty()) return;
+    if (!filename.endsWith(".yaml") && !filename.endsWith(".yml"))
+        filename += ".yaml";
 
-    std::ofstream f(filename.toStdString());
-    f << "# x,y,z,qx,qy,qz,qw,ptz_preset,do_capture,extra_action\n";
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    out << YAML::Key << "waypoints" << YAML::Value << YAML::BeginSeq;
     for (const auto& mp : mission_points_) {
         const auto& p = mp.nav_pose.pose;
-        f << p.position.x << "," << p.position.y << "," << p.position.z << ","
-          << p.orientation.x << "," << p.orientation.y << ","
-          << p.orientation.z << "," << p.orientation.w << ","
-          << mp.ptz_preset << "," << (mp.do_capture ? 1 : 0) << ","
-          << mp.extra_action << "\n";
+        out << YAML::BeginMap;
+        out << YAML::Key << "pose" << YAML::Value << YAML::Flow << YAML::BeginMap
+            << YAML::Key << "x"  << YAML::Value << p.position.x
+            << YAML::Key << "y"  << YAML::Value << p.position.y
+            << YAML::Key << "z"  << YAML::Value << p.position.z
+            << YAML::Key << "qx" << YAML::Value << p.orientation.x
+            << YAML::Key << "qy" << YAML::Value << p.orientation.y
+            << YAML::Key << "qz" << YAML::Value << p.orientation.z
+            << YAML::Key << "qw" << YAML::Value << p.orientation.w
+            << YAML::EndMap;
+        out << YAML::Key << "ptz_preset" << YAML::Value << mp.ptz_preset;
+        out << YAML::Key << "capture"    << YAML::Value << mp.do_capture;
+        out << YAML::Key << "action"     << YAML::Value << mp.extra_action;
+        out << YAML::EndMap;
     }
+    out << YAML::EndSeq << YAML::EndMap;
+
+    std::ofstream f(filename.toStdString());
+    f << "# 任务点位: pose(map系) + ptz_preset(0=不动云台) + capture + action\n"
+         "# action: \"\"=无动作  grasp=视觉抓取  place=移到放置位姿张手\n";
+    f << out.c_str() << "\n";
     status_label_->setText("Status: Saved.");
 }
 
 void MyPanel::onLoadClicked() {
-    QString filename = QFileDialog::getOpenFileName(this, "Load", "", "Text (*.txt)");
+    QString filename = QFileDialog::getOpenFileName(
+        this, "Load", "", "YAML (*.yaml *.yml)");
     if (filename.isEmpty()) return;
 
-    std::ifstream f(filename.toStdString());
-    if (!f.is_open()) return;
-
-    mission_points_.clear();
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        std::stringstream ss(line);
-        std::string val;
-        std::vector<std::string> tokens;
-        while (std::getline(ss, val, ',')) tokens.push_back(val);
-
-        if (tokens.size() >= 7) {
+    std::vector<MissionPoint> loaded;
+    try {
+        YAML::Node root = YAML::LoadFile(filename.toStdString());
+        for (const auto& node : root["waypoints"]) {
             MissionPoint mp;
             mp.nav_pose.header.frame_id = "map";
-            mp.nav_pose.pose.position.x = std::stod(tokens[0]);
-            mp.nav_pose.pose.position.y = std::stod(tokens[1]);
-            mp.nav_pose.pose.position.z = std::stod(tokens[2]);
-            mp.nav_pose.pose.orientation.x = std::stod(tokens[3]);
-            mp.nav_pose.pose.orientation.y = std::stod(tokens[4]);
-            mp.nav_pose.pose.orientation.z = std::stod(tokens[5]);
-            mp.nav_pose.pose.orientation.w = std::stod(tokens[6]);
-            if (tokens.size() >= 8) mp.ptz_preset = std::stoi(tokens[7]);
-            if (tokens.size() >= 9) mp.do_capture = (std::stoi(tokens[8]) != 0);
-            if (tokens.size() >= 10) mp.extra_action = tokens[9];
-            mission_points_.push_back(mp);
+            const auto& pose = node["pose"];
+            mp.nav_pose.pose.position.x    = pose["x"].as<double>();
+            mp.nav_pose.pose.position.y    = pose["y"].as<double>();
+            mp.nav_pose.pose.position.z    = pose["z"].as<double>(0.0);
+            mp.nav_pose.pose.orientation.x = pose["qx"].as<double>(0.0);
+            mp.nav_pose.pose.orientation.y = pose["qy"].as<double>(0.0);
+            mp.nav_pose.pose.orientation.z = pose["qz"].as<double>(0.0);
+            mp.nav_pose.pose.orientation.w = pose["qw"].as<double>(1.0);
+            mp.ptz_preset  = node["ptz_preset"].as<int>(0);
+            mp.do_capture  = node["capture"].as<bool>(true);
+            mp.extra_action = node["action"].as<std::string>("");
+            loaded.push_back(mp);
         }
+    } catch (const YAML::Exception& e) {
+        QMessageBox::critical(this, "Load", QString("YAML parse error:\n%1").arg(e.what()));
+        return;
     }
+
+    mission_points_ = std::move(loaded);
     updateListWidget();
     status_label_->setText(QString("Status: Loaded %1 points").arg(mission_points_.size()));
 }

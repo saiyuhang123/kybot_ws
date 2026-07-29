@@ -363,6 +363,41 @@ int main(int argc, char** argv)
         return true;
     });
 
+    // ---- 机械臂抓取/放置动作 (yolo_grasp.py 提供的 Trigger 服务) ----
+    // extra_action = "grasp": 视觉引导抓取 (YOLO 当前目标)
+    // extra_action = "place": 移动到示教放置位姿并张手
+    // 注意: client 必须建在 mission_executor 节点上,
+    // 由主线程 rclcpp::spin(node) 处理响应, 任务线程只管等 future
+    auto make_trigger_action = [node](const std::string& srv_name) {
+        auto client = node->create_client<std_srvs::srv::Trigger>(srv_name);
+        return [client, srv_name](const hk_camera::msg::MissionWaypoint&,
+                                  const std::string&) {
+            if (!client->wait_for_service(3s))
+            {
+                RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                             "%s NOT available (yolo_grasp.py running?)",
+                             srv_name.c_str());
+                return false;
+            }
+            auto future = client->async_send_request(
+                std::make_shared<std_srvs::srv::Trigger::Request>());
+            // 抓取/放置含多段 movej/movel，耗时长，超时给足
+            if (future.wait_for(120s) != std::future_status::ready)
+            {
+                RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                             "%s timeout", srv_name.c_str());
+                return false;
+            }
+            auto res = future.get();
+            RCLCPP_INFO(rclcpp::get_logger("mission_executor"),
+                        "%s result: success=%d, msg=%s",
+                        srv_name.c_str(), res->success, res->message.c_str());
+            return res->success;
+        };
+    };
+    node->registerAction("grasp", make_trigger_action("/yolo_grasp/grasp"));
+    node->registerAction("place", make_trigger_action("/yolo_grasp/place"));
+
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;

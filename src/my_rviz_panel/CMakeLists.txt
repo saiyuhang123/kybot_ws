@@ -18,6 +18,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(hk_camera REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # 开启 Qt 编译支持 (MOC 编译器)
 set(CMAKE_AUTOMOC ON)
@@ -33,7 +34,7 @@ add_library(${PROJECT_NAME} SHARED
   src/my_panel.cpp
   include/my_rviz_panel/my_panel.hpp
 )
-target_link_libraries(${PROJECT_NAME} Qt5::Widgets)
+target_link_libraries(${PROJECT_NAME} Qt5::Widgets yaml-cpp)
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
