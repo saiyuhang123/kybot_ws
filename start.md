@@ -23,3 +23,7 @@ ros2 launch my_rviz_panel mission_executor.launch.py
 
 # 4. 打开 RViz, 添加 my_rviz_panel 插件
 
+
+ros2 launch nav2_bringup bringup_launch.py use_sim_time:=False autostart:=True map:=/home/nvidia/Documents/PCD/pgm_yaml/test01.yaml params_file:=/home/nvidia/kybot_ws/src/nav2_params/nav2_params.yaml 
+
+

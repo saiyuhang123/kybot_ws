@@ -58,6 +58,9 @@ void MissionExecutor::setupClients()
 
     login_client_ = create_client<std_srvs::srv::Trigger>(
         "/hk_camera/login");
+
+    arm_home2_client_ = create_client<std_srvs::srv::Trigger>(
+        "/yolo_grasp/home2");
 }
 
 // ============================================================
@@ -135,6 +138,29 @@ void MissionExecutor::executeMission()
     else
     {
         RCLCPP_WARN(get_logger(), "Login service not available, PTZ/capture may fail");
+    }
+
+    // ---- 任务开始: 机械臂收拢到 Home2 (导航期间安全姿态, 无机械臂时跳过) ----
+    if (arm_home2_client_->wait_for_service(2s))
+    {
+        RCLCPP_INFO(get_logger(), "Stowing arm to Home2 before navigation...");
+        auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+        auto future = arm_home2_client_->async_send_request(req);
+        // home2 服务同步执行, 返回时已到位 (movej 约几秒, 超时给 30s)
+        if (future.wait_for(30s) == std::future_status::ready)
+        {
+            auto res = future.get();
+            RCLCPP_INFO(get_logger(), "Arm Home2: %s (success=%d)",
+                        res->message.c_str(), res->success);
+        }
+        else
+        {
+            RCLCPP_WARN(get_logger(), "Arm Home2 timeout, continuing anyway");
+        }
+    }
+    else
+    {
+        RCLCPP_INFO(get_logger(), "Arm home2 service not available, skipping stow");
     }
 
     for (size_t i = 0; i < total; i++)
@@ -397,6 +423,8 @@ int main(int argc, char** argv)
     };
     node->registerAction("grasp", make_trigger_action("/yolo_grasp/grasp"));
     node->registerAction("place", make_trigger_action("/yolo_grasp/place"));
+    node->registerAction("home2", make_trigger_action("/yolo_grasp/home2"));
+    node->registerAction("ready", make_trigger_action("/yolo_grasp/ready"));
 
     rclcpp::spin(node);
     rclcpp::shutdown();

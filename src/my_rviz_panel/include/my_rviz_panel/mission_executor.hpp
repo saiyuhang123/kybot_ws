@@ -86,6 +86,8 @@ private:
     rclcpp::Client<hk_camera::srv::SetPTZPose>::SharedPtr ptz_client_;
     rclcpp::Client<hk_camera::srv::CapturePicture>::SharedPtr capture_client_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr login_client_;
+    // 机械臂收拢 (yolo_grasp home2): 任务开始前调用, 可选
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr arm_home2_client_;
 };
 
 } // namespace my_rviz_panel
