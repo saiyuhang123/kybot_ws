@@ -1,4 +1,6 @@
 #include "my_rviz_panel/mission_executor.hpp"
+#include <nav2_msgs/action/drive_on_heading.hpp>
+#include <nav2_msgs/action/back_up.hpp>
 #include <chrono>
 
 using namespace std::chrono_literals;
@@ -374,6 +376,79 @@ void MissionExecutor::publishStatus(uint8_t state, uint8_t index,
 } // namespace my_rviz_panel
 
 // ============================================================
+// 直线行驶原语 (Nav2 behavior: drive_on_heading / backup)
+// 从任务线程同步调用, 带 Nav2 局部代价地图碰撞检查
+// ============================================================
+template<typename ActionT>
+bool driveStraight(
+    typename rclcpp_action::Client<ActionT>::SharedPtr client,
+    double distance, double speed, const char* name,
+    double* traveled_out = nullptr)
+{
+    if (!client->wait_for_action_server(3s))
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                     "%s action server NOT available (behavior_server running?)",
+                     name);
+        return false;
+    }
+
+    typename ActionT::Goal goal;
+    goal.target.x = distance;  // BackUp 内部自动取负, 传正值即可
+    goal.speed = speed;
+    goal.time_allowance = rclcpp::Duration(30, 0);
+
+    // 用 feedback 记录实际行驶距离 (碰撞检查提前停止时退回不会过冲)
+    auto opts = typename rclcpp_action::Client<ActionT>::SendGoalOptions();
+    if (traveled_out)
+    {
+        *traveled_out = 0.0;
+        opts.feedback_callback =
+            [traveled_out](
+                typename rclcpp_action::ClientGoalHandle<ActionT>::SharedPtr,
+                const std::shared_ptr<const typename ActionT::Feedback> fb) {
+                *traveled_out = fb->distance_traveled;
+            };
+    }
+
+    auto gh_future = client->async_send_goal(goal, opts);
+    if (gh_future.wait_for(5s) != std::future_status::ready)
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                     "%s: send goal timeout", name);
+        return false;
+    }
+    auto goal_handle = gh_future.get();
+    if (!goal_handle)
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                     "%s: goal rejected", name);
+        return false;
+    }
+
+    auto result_future = client->async_get_result(goal_handle);
+    if (result_future.wait_for(60s) != std::future_status::ready)
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                     "%s: result timeout", name);
+        client->async_cancel_goal(goal_handle);
+        return false;
+    }
+
+    auto result = result_future.get();
+    if (result.code != rclcpp_action::ResultCode::SUCCEEDED)
+    {
+        RCLCPP_WARN(rclcpp::get_logger("mission_executor"),
+                    "%s: finished with code %d (可能因碰撞检查提前停止)",
+                    name, static_cast<int>(result.code));
+        return false;
+    }
+    RCLCPP_INFO(rclcpp::get_logger("mission_executor"),
+                "%s: done (%.2fm @ %.2fm/s)", name, distance, speed);
+    return true;
+}
+
+// ============================================================
 // 独立节点入口
 // ============================================================
 int main(int argc, char** argv)
@@ -389,9 +464,9 @@ int main(int argc, char** argv)
         return true;
     });
 
-    // ---- 机械臂抓取/放置动作 (yolo_grasp.py 提供的 Trigger 服务) ----
-    // extra_action = "grasp": 视觉引导抓取 (YOLO 当前目标)
+    // ---- 机械臂放置/位姿动作 (yolo_grasp.py 提供的 Trigger 服务) ----
     // extra_action = "place": 移动到示教放置位姿并张手
+    // extra_action = "home2"/"ready": 机械臂收拢/预备位姿 (调试用)
     // 注意: client 必须建在 mission_executor 节点上,
     // 由主线程 rclcpp::spin(node) 处理响应, 任务线程只管等 future
     auto make_trigger_action = [node](const std::string& srv_name) {
@@ -421,7 +496,74 @@ int main(int argc, char** argv)
             return res->success;
         };
     };
-    node->registerAction("grasp", make_trigger_action("/yolo_grasp/grasp"));
+    // ---- 抓取组合动作: 直线逼近 → 视觉抓取 → 直线退回 ----
+    // YAML 路点写 standoff 位姿 (远离障碍的自由空间, yaw 对准目标),
+    // 到位后由 behavior_server 做带碰撞检查的直线逼近, 抓取后原路退回
+    node->declare_parameter("approach_distance", 0.5);  // 逼近距离 (m)
+    node->declare_parameter("approach_speed", 0.1);     // 逼近速度 (m/s)
+
+    using DriveOnHeading = nav2_msgs::action::DriveOnHeading;
+    using BackUp = nav2_msgs::action::BackUp;
+    auto doh_client =
+        rclcpp_action::create_client<DriveOnHeading>(node, "drive_on_heading");
+    auto backup_client =
+        rclcpp_action::create_client<BackUp>(node, "backup");
+    auto grasp_trigger =
+        node->create_client<std_srvs::srv::Trigger>("/yolo_grasp/grasp");
+
+    node->registerAction("grasp", [=](const hk_camera::msg::MissionWaypoint&,
+                                      const std::string&) {
+        const double dist = node->get_parameter("approach_distance").as_double();
+        const double speed = node->get_parameter("approach_speed").as_double();
+
+        // 1. 直线逼近 (碰撞检查提前停止只警告, 是否够得着由抓取服务判断)
+        double approached = 0.0;
+        if (!driveStraight<DriveOnHeading>(doh_client, dist, speed,
+                                           "drive_on_heading", &approached))
+        {
+            RCLCPP_WARN(rclcpp::get_logger("mission_executor"),
+                        "Approach incomplete (%.2f/%.2fm), trying grasp anyway",
+                        approached, dist);
+        }
+
+        // 2. 视觉抓取
+        bool ok = false;
+        if (!grasp_trigger->wait_for_service(3s))
+        {
+            RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                         "/yolo_grasp/grasp NOT available (yolo_grasp.py running?)");
+        }
+        else
+        {
+            auto future = grasp_trigger->async_send_request(
+                std::make_shared<std_srvs::srv::Trigger::Request>());
+            if (future.wait_for(120s) != std::future_status::ready)
+            {
+                RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                             "/yolo_grasp/grasp timeout");
+            }
+            else
+            {
+                auto res = future.get();
+                ok = res->success;
+                RCLCPP_INFO(rclcpp::get_logger("mission_executor"),
+                            "grasp result: success=%d, msg=%s",
+                            res->success, res->message.c_str());
+            }
+        }
+
+        // 3. 原路退回 (无论抓取成败; 只退实际逼近的距离, 防过冲)
+        if (approached > 0.05)
+        {
+            if (!driveStraight<BackUp>(backup_client, approached, speed, "backup"))
+            {
+                RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
+                             "Retreat FAILED, 底盘仍停在逼近位置, 请人工确认!");
+            }
+        }
+        return ok;
+    });
+
     node->registerAction("place", make_trigger_action("/yolo_grasp/place"));
     node->registerAction("home2", make_trigger_action("/yolo_grasp/home2"));
     node->registerAction("ready", make_trigger_action("/yolo_grasp/ready"));

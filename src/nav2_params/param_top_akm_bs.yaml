@@ -20,8 +20,8 @@ controller_server:
       movement_time_allowance: 10.0            #移动时间容差
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.3                  #xy 目标容差
-      yaw_goal_tolerance: 0.3                 #yaw目标容差
+      xy_goal_tolerance: 0.1 # 0.3                  #xy 目标容差
+      yaw_goal_tolerance: 0.1 # 0.3                #yaw目标容差
       stateful: True
 
     FollowPath:
@@ -141,7 +141,7 @@ local_costmap:
       inflation_layer:                             #膨胀层参数
         plugin: "nav2_costmap_2d::InflationLayer"  #膨胀层插件。
         cost_scaling_factor: 5.0                   #成本缩放因子，决定障碍物成本随距离的递减速度。
-        inflation_radius: 0.60                     #从0.35改为0.40，必须≥内切半径0.38m
+        inflation_radius: 0.40 #0.60暂时修改                     #从0.35改为0.40，必须≥内切半径0.38m
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"      #体素层插件。
         enabled: True
