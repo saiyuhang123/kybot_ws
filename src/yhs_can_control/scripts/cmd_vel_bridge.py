@@ -110,11 +110,13 @@ class CmdVelBridge(Node):
         if not self.cmd_vel_received:
             self.get_logger().info('收到首个 /cmd_vel 消息')
 
-        # 调试打印：每 50 条打印一次原始输入（约 0.5~1s 一次）
-        if not hasattr(self, '_debug_cnt'):
-            self._debug_cnt = 0
-        self._debug_cnt += 1
-        if self._debug_cnt % 1 == 0:
+        # 调试打印：每 5 秒打印一次原始输入
+        now_time = self.get_clock().now()
+        if not hasattr(self, '_last_debug_time'):
+            self._last_debug_time = None
+        if self._last_debug_time is None or \
+           (now_time - self._last_debug_time).nanoseconds >= 5_000_000_000:
+            self._last_debug_time = now_time
             self.get_logger().info(
                 f'[调试 /cmd_vel] '
                 f'线速度 x={msg.linear.x:.3f} m/s, '

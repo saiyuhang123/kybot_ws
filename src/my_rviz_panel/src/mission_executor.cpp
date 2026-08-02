@@ -12,8 +12,8 @@ namespace my_rviz_panel {
 MissionExecutor::MissionExecutor(const std::string& name)
     : Node(name)
 {
-    declare_parameter("front_stop_distance", 0.30);
-    declare_parameter("scan_timeout", 0.20);
+    declare_parameter("front_stop_distance", 0.60);
+    declare_parameter("scan_timeout", 0.5);
     declare_parameter("odom_timeout", 0.30);
     declare_parameter("front_scan_min_angle", -10.0);
     declare_parameter("front_scan_max_angle", 10.0);
@@ -243,6 +243,10 @@ bool MissionExecutor::driveDistance(double distance, double speed,
         if (traveled_distance >= distance)
         {
             stopBase();
+            RCLCPP_WARN(get_logger(),
+                        "Approach completed full distance (%.2fm) without "
+                        "obstacle stop; front laser may not be seeing the target",
+                        traveled_distance);
             return true;
         }
 
@@ -729,7 +733,7 @@ int main(int argc, char** argv)
     // ---- 抓取组合动作: 直线逼近 → 视觉抓取 → 直线退回 ----
     // YAML 路点写 standoff 位姿 (远离障碍的自由空间, yaw 对准目标),
     // 到位后由 behavior_server 做带碰撞检查的直线逼近, 抓取后原路退回
-    node->declare_parameter("approach_distance", 0.5);  // 逼近距离 (m)
+    node->declare_parameter("approach_distance", 1.5);  // 逼近距离 (m)
     node->declare_parameter("approach_speed", 0.1);     // 逼近速度 (m/s)
 
     auto grasp_trigger =

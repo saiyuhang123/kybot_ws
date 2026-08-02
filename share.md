@@ -1,39 +1,32 @@
-[INFO] [launch]: All log files can be found below /home/nvidia/.ros/log/2026-07-16-14-25-43-581302-nvidia-desktop-200899
+nvidia@nvidia-desktop:~/kybot_ws$ source ~/kybot_ws/install/setup.bash
+ros2 launch my_rviz_panel mission_executor.launch.py
+[INFO] [launch]: All log files can be found below /home/nvidia/.ros/log/2026-08-02-19-16-06-362724-nvidia-desktop-28616
 [INFO] [launch]: Default logging verbosity is set to INFO
-[INFO] [mission_executor-1]: process started with pid [200907]
-[mission_executor-1] [INFO] [1784183143.748118410] [mission_executor]: MissionExecutor ready
-[mission_executor-1] [INFO] [1784183143.748351860] [mission_executor]: Registered action handler: 'log'
-[mission_executor-1] [INFO] [1784183257.839228136] [mission_executor]: Mission started: 4 waypoints
-[mission_executor-1] [INFO] [1784183257.847336348] [mission_executor]: [1/4] Navigating...
-[mission_executor-1] [INFO] [1784183258.730927775] [mission_executor]: [1/4] Arrived
-[mission_executor-1] [INFO] [1784183258.731056900] [mission_executor]: [1/4] PTZ check: pan=1
-[mission_executor-1] [INFO] [1784183258.731095654] [mission_executor]: [1/4] PTZ → preset 1
-[mission_executor-1] [INFO] [1784183258.731106663] [mission_executor]: setPTZPose: checking service...
-[mission_executor-1] [INFO] [1784183258.731514200] [mission_executor]: setPTZPose: service available, sending request pan=1
-[mission_executor-1] [INFO] [1784183258.732544739] [mission_executor]: setPTZPose result: success=0, msg=Not logged in
-[mission_executor-1] [WARN] [1784183258.732590597] [mission_executor]: [1/4] PTZ failed, continuing
-[mission_executor-1] [INFO] [1784183261.732679376] [mission_executor]: [1/4] Capture check: do_capture=1
-[mission_executor-1] [INFO] [1784183261.732831830] [mission_executor]: [1/4] Capturing...
-[mission_executor-1] [INFO] [1784183261.732851095] [mission_executor]: capturePicture: checking service...
-[mission_executor-1] [INFO] [1784183261.733286505] [mission_executor]: capturePicture: service available, sending request
-[mission_executor-1] [INFO] [1784183261.734651395] [mission_executor]: capturePicture result: success=0, msg=Not logged in
-[mission_executor-1] [WARN] [1784183261.734723814] [mission_executor]: [1/4] Capture failed, continuing
-[mission_executor-1] [INFO] [1784183261.734751623] [mission_executor]: [2/4] Navigating...
-[mission_executor-1] [INFO] [1784183274.234414981] [mission_executor]: [2/4] Arrived
-[mission_executor-1] [INFO] [1784183274.234507849] [mission_executor]: [2/4] PTZ check: pan=2
-[mission_executor-1] [INFO] [1784183274.234544010] [mission_executor]: [2/4] PTZ → preset 2
-[mission_executor-1] [INFO] [1784183274.234555115] [mission_executor]: setPTZPose: checking service...
-[mission_executor-1] [INFO] [1784183274.234969340] [mission_executor]: setPTZPose: service available, sending request pan=2
-[mission_executor-1] [INFO] [1784183274.239259920] [mission_executor]: setPTZPose result: success=0, msg=Not logged in
-[mission_executor-1] [WARN] [1784183274.239352372] [mission_executor]: [2/4] PTZ failed, continuing
-[mission_executor-1] [INFO] [1784183277.239468765] [mission_executor]: [2/4] Capture check: do_capture=1
-[mission_executor-1] [INFO] [1784183277.239621764] [mission_executor]: [2/4] Capturing...
-[mission_executor-1] [INFO] [1784183277.239637380] [mission_executor]: capturePicture: checking service...
-[mission_executor-1] [INFO] [1784183277.240069622] [mission_executor]: capturePicture: service available, sending request
-[mission_executor-1] [INFO] [1784183277.240543658] [mission_executor]: capturePicture result: success=0, msg=Not logged in
-[mission_executor-1] [WARN] [1784183277.240579500] [mission_executor]: [2/4] Capture failed, continuing
-[mission_executor-1] [INFO] [1784183277.240603437] [mission_executor]: [3/4] Navigating...
-[mission_executor-1] [ERROR] [1784183397.241871719] [mission_executor]: Nav timeout
-[mission_executor-1] [ERROR] [1784183397.242214582] [mission_executor]: Navigation failed at point 3
-[mission_executor-1] [INFO] [1784183397.242237942] [mission_executor]: Mission completed: 4 waypoints
+[INFO] [mission_executor-1]: process started with pid [28629]
+[mission_executor-1] [INFO] [1785669366.540653648] [mission_executor]: MissionExecutor ready
+[mission_executor-1] [INFO] [1785669366.540960816] [mission_executor]: Registered action handler: 'log'
+[mission_executor-1] [INFO] [1785669366.552492688] [mission_executor]: Registered action handler: 'grasp'
+[mission_executor-1] [INFO] [1785669366.553574608] [mission_executor]: Registered action handler: 'place'
+[mission_executor-1] [INFO] [1785669366.554546320] [mission_executor]: Registered action handler: 'home2'
+[mission_executor-1] [INFO] [1785669366.555732240] [mission_executor]: Registered action handler: 'ready'
+[mission_executor-1] [INFO] [1785669744.183067792] [mission_executor]: Mission started: 1 waypoints
+[mission_executor-1] [INFO] [1785669744.192818512] [mission_executor]: Checking camera login...
+[mission_executor-1] [INFO] [1785669744.272189072] [mission_executor]: Camera login: Login OK, user_id=0 (success=1)
+[mission_executor-1] [INFO] [1785669744.272715568] [mission_executor]: Stowing arm to Home2 before navigation...
+[mission_executor-1] [INFO] [1785669759.907900496] [mission_executor]: Arm Home2: 已回 Home2 位姿 (success=1)
+[mission_executor-1] [INFO] [1785669759.908026288] [mission_executor]: [1/1] Navigating...
+[mission_executor-1] [INFO] [1785669772.746400144] [mission_executor]: [1/1] Arrived
+[mission_executor-1] [INFO] [1785669772.746510960] [mission_executor]: [1/1] PTZ check: pan=0
+[mission_executor-1] [INFO] [1785669772.746535792] [mission_executor]: [1/1] Capture check: do_capture=1
+[mission_executor-1] [INFO] [1785669772.746563312] [mission_executor]: [1/1] Capturing...
+[mission_executor-1] [INFO] [1785669772.746630160] [mission_executor]: capturePicture: checking service...
+[mission_executor-1] [INFO] [1785669772.746984592] [mission_executor]: capturePicture: service available, sending request
+[mission_executor-1] [INFO] [1785669773.106318160] [mission_executor]: capturePicture result: success=1, msg=Captured: /home/nvidia/kybot_ws/src/hk_camera/pic_capture/1785669772747729968.jpg
+[mission_executor-1] [INFO] [1785669773.106927344] [mission_executor]: [1/1] Capture OK
+[mission_executor-1] [INFO] [1785669773.107005232] [mission_executor]: Mission completed: 1 waypointsr]: Passing new path to controller.
+[component_container_isolated-1] [INFO] [1785669771.482705392] [controller_server]: Passing new path to controller.
+[component_container_isolated-1] [INFO] [1785669772.482708368] [controller_server]: Passing new path to controller.
+[component_container_isolated-1] [INFO] [1785669772.707230576] [controller_server]: Reached the goal!
+[component_container_isolated-1] [INFO] [1785669772.745700592] [bt_navigator]: Goal succeeded
+
 
