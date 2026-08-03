@@ -2,6 +2,7 @@
 #include <nav2_msgs/action/drive_on_heading.hpp>
 #include <nav2_msgs/action/back_up.hpp>
 #include <chrono>
+#include <limits>
 
 using namespace std::chrono_literals;
 using namespace std::placeholders;
@@ -11,14 +12,28 @@ namespace my_rviz_panel {
 MissionExecutor::MissionExecutor(const std::string& name)
     : Node(name)
 {
+    declare_parameter("front_stop_distance", 0.30);
+    declare_parameter("scan_timeout", 0.20);
+    declare_parameter("odom_timeout", 0.30);
+    declare_parameter("front_scan_min_angle", -10.0);
+    declare_parameter("front_scan_max_angle", 10.0);
+
     setupServices();
     setupClients();
+
+    cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+        "/odom", 10, std::bind(&MissionExecutor::onOdom, this, _1));
+    scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
+        "/scan_fe", 10, std::bind(&MissionExecutor::onScan, this, _1));
+
     RCLCPP_INFO(get_logger(), "MissionExecutor ready");
 }
 
 MissionExecutor::~MissionExecutor()
 {
     mission_cancel_ = true;
+    stopBase();
     if (mission_thread_.joinable())
         mission_thread_.join();
 }
@@ -63,6 +78,221 @@ void MissionExecutor::setupClients()
 
     arm_home2_client_ = create_client<std_srvs::srv::Trigger>(
         "/yolo_grasp/home2");
+}
+
+void MissionExecutor::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+    std::lock_guard<std::mutex> lock(sensor_mutex_);
+    latest_odom_ = *msg;
+    latest_odom_time_ = now();
+    have_odom_ = true;
+}
+
+void MissionExecutor::onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg)
+{
+    std::lock_guard<std::mutex> lock(sensor_mutex_);
+    latest_scan_ = *msg;
+    latest_scan_time_ = now();
+    have_scan_ = true;
+}
+
+void MissionExecutor::publishVelocity(double linear_x)
+{
+    geometry_msgs::msg::Twist cmd;
+    cmd.linear.x = linear_x;
+    cmd.angular.z = 0.0;
+    cmd_vel_pub_->publish(cmd);
+}
+
+void MissionExecutor::stopBase()
+{
+    // Publish several zero commands so the bridge receives the stop even if
+    // one cycle is delayed. The bridge will convert this to neutral/disabled.
+    for (int i = 0; i < 3; ++i)
+    {
+        publishVelocity(0.0);
+        rclcpp::sleep_for(20ms);
+    }
+}
+
+bool MissionExecutor::getFrontObstacleDistance(double& distance) const
+{
+    const double min_angle = get_parameter("front_scan_min_angle").as_double() * M_PI / 180.0;
+    const double max_angle = get_parameter("front_scan_max_angle").as_double() * M_PI / 180.0;
+
+    std::lock_guard<std::mutex> lock(sensor_mutex_);
+    if (!have_scan_ || latest_scan_.ranges.empty())
+        return false;
+
+    double minimum = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < latest_scan_.ranges.size(); ++i)
+    {
+        const double angle = latest_scan_.angle_min +
+                             static_cast<double>(i) * latest_scan_.angle_increment;
+        if (angle < min_angle || angle > max_angle)
+            continue;
+
+        const double range = latest_scan_.ranges[i];
+        if (std::isfinite(range) && range >= latest_scan_.range_min &&
+            range <= latest_scan_.range_max)
+        {
+            minimum = std::min(minimum, range);
+        }
+    }
+
+    if (!std::isfinite(minimum))
+        return false;
+
+    distance = minimum;
+    return true;
+}
+
+bool MissionExecutor::driveDistance(double distance, double speed,
+                                    bool forward, double& traveled_distance)
+{
+    traveled_distance = 0.0;
+    if (distance <= 0.0 || speed <= 0.0)
+    {
+        stopBase();
+        return distance <= 0.0;
+    }
+
+    const auto wait_start = std::chrono::steady_clock::now();
+    while (rclcpp::ok())
+    {
+        {
+            std::lock_guard<std::mutex> lock(sensor_mutex_);
+            if (have_odom_)
+                break;
+        }
+        if (mission_cancel_ ||
+            std::chrono::steady_clock::now() - wait_start > 2s)
+        {
+            stopBase();
+            RCLCPP_ERROR(get_logger(), "No fresh odometry for base motion");
+            return false;
+        }
+        rclcpp::sleep_for(20ms);
+    }
+
+    if (!rclcpp::ok())
+    {
+        stopBase();
+        return false;
+    }
+
+    double start_x;
+    double start_y;
+    double start_yaw;
+    {
+        std::lock_guard<std::mutex> lock(sensor_mutex_);
+        start_x = latest_odom_.pose.pose.position.x;
+        start_y = latest_odom_.pose.pose.position.y;
+        const auto& q = latest_odom_.pose.pose.orientation;
+        start_yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                               1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    }
+
+    const double direction = forward ? 1.0 : -1.0;
+    const double command = direction * speed;
+    const double front_stop_distance =
+        get_parameter("front_stop_distance").as_double();
+    const double scan_timeout = get_parameter("scan_timeout").as_double();
+    const double odom_timeout = get_parameter("odom_timeout").as_double();
+    const auto motion_start = std::chrono::steady_clock::now();
+    const auto max_motion_time =
+        std::chrono::duration<double>(distance / speed + 5.0);
+
+    RCLCPP_INFO(get_logger(), "%s %.2f m at %.2f m/s",
+                forward ? "Approaching" : "Retreating", distance, speed);
+
+    while (rclcpp::ok())
+    {
+        if (mission_cancel_)
+        {
+            stopBase();
+            return false;
+        }
+
+        double x;
+        double y;
+        rclcpp::Time odom_time;
+        {
+            std::lock_guard<std::mutex> lock(sensor_mutex_);
+            if (!have_odom_)
+            {
+                stopBase();
+                return false;
+            }
+            x = latest_odom_.pose.pose.position.x;
+            y = latest_odom_.pose.pose.position.y;
+            odom_time = latest_odom_time_;
+        }
+
+        const double age = (now() - odom_time).seconds();
+        if (age > odom_timeout)
+        {
+            stopBase();
+            RCLCPP_ERROR(get_logger(), "Odometry timeout during base motion");
+            return false;
+        }
+
+        const double projection = (x - start_x) * std::cos(start_yaw) +
+                                  (y - start_y) * std::sin(start_yaw);
+        traveled_distance = std::max(0.0, direction * projection);
+        if (traveled_distance >= distance)
+        {
+            stopBase();
+            return true;
+        }
+
+        if (forward)
+        {
+            rclcpp::Time scan_time;
+            bool have_scan = false;
+            {
+                std::lock_guard<std::mutex> lock(sensor_mutex_);
+                scan_time = latest_scan_time_;
+                have_scan = have_scan_;
+            }
+            if (!have_scan || (now() - scan_time).seconds() > scan_timeout)
+            {
+                stopBase();
+                RCLCPP_ERROR(get_logger(), "Laser scan timeout during approach");
+                return false;
+            }
+
+            double obstacle_distance = 0.0;
+            if (!getFrontObstacleDistance(obstacle_distance))
+            {
+                stopBase();
+                RCLCPP_ERROR(get_logger(), "No valid forward laser range");
+                return false;
+            }
+            if (obstacle_distance <= front_stop_distance)
+            {
+                stopBase();
+                RCLCPP_WARN(get_logger(),
+                            "Approach stopped by obstacle at %.2f m; traveled %.2f m",
+                            obstacle_distance, traveled_distance);
+                // A controlled obstacle stop is a valid approach endpoint.
+                return true;
+            }
+        }
+
+        if (std::chrono::steady_clock::now() - motion_start > max_motion_time)
+        {
+            stopBase();
+            RCLCPP_ERROR(get_logger(), "Base motion timeout");
+            return false;
+        }
+
+        publishVelocity(command);
+        rclcpp::sleep_for(50ms);
+    }
+
+    stopBase();
+    return false;
 }
 
 // ============================================================
@@ -502,12 +732,6 @@ int main(int argc, char** argv)
     node->declare_parameter("approach_distance", 0.5);  // 逼近距离 (m)
     node->declare_parameter("approach_speed", 0.1);     // 逼近速度 (m/s)
 
-    using DriveOnHeading = nav2_msgs::action::DriveOnHeading;
-    using BackUp = nav2_msgs::action::BackUp;
-    auto doh_client =
-        rclcpp_action::create_client<DriveOnHeading>(node, "drive_on_heading");
-    auto backup_client =
-        rclcpp_action::create_client<BackUp>(node, "backup");
     auto grasp_trigger =
         node->create_client<std_srvs::srv::Trigger>("/yolo_grasp/grasp");
 
@@ -518,22 +742,23 @@ int main(int argc, char** argv)
 
         // 1. 直线逼近 (碰撞检查提前停止只警告, 是否够得着由抓取服务判断)
         double approached = 0.0;
-        if (!driveStraight<DriveOnHeading>(doh_client, dist, speed,
-                                           "drive_on_heading", &approached))
+        const bool approach_ok =
+            node->driveDistance(dist, speed, true, approached);
+        if (!approach_ok)
         {
             RCLCPP_WARN(rclcpp::get_logger("mission_executor"),
-                        "Approach incomplete (%.2f/%.2fm), trying grasp anyway",
+                        "Approach failed (%.2f/%.2fm), skipping grasp",
                         approached, dist);
         }
 
         // 2. 视觉抓取
         bool ok = false;
-        if (!grasp_trigger->wait_for_service(3s))
+        if (approach_ok && !grasp_trigger->wait_for_service(3s))
         {
             RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
                          "/yolo_grasp/grasp NOT available (yolo_grasp.py running?)");
         }
-        else
+        else if (approach_ok)
         {
             auto future = grasp_trigger->async_send_request(
                 std::make_shared<std_srvs::srv::Trigger::Request>());
@@ -555,7 +780,8 @@ int main(int argc, char** argv)
         // 3. 原路退回 (无论抓取成败; 只退实际逼近的距离, 防过冲)
         if (approached > 0.05)
         {
-            if (!driveStraight<BackUp>(backup_client, approached, speed, "backup"))
+            double retreated = 0.0;
+            if (!node->driveDistance(approached, speed, false, retreated))
             {
                 RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
                              "Retreat FAILED, 底盘仍停在逼近位置, 请人工确认!");

@@ -5,6 +5,9 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
 
 #include "hk_camera/msg/mission_waypoint.hpp"
 #include "hk_camera/msg/mission_status.hpp"
@@ -12,10 +15,15 @@
 #include "hk_camera/srv/set_ptz_pose.hpp"
 #include "hk_camera/srv/capture_picture.hpp"
 
+#include <atomic>
+#include <cmath>
 #include <functional>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace my_rviz_panel {
 
@@ -48,6 +56,9 @@ public:
     /// 注册扩展动作处理器
     void registerAction(const std::string& name, ActionHandler handler);
 
+    bool driveDistance(double distance, double speed, bool forward,
+                       double& traveled_distance);
+
 private:
     // ---- ROS 接口 ----
     void setupServices();
@@ -67,6 +78,11 @@ private:
     bool setPTZPose(float pan, float tilt, float zoom);
     bool capturePicture();
     void publishStatus(uint8_t state, uint8_t index, const std::string& msg);
+    void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg);
+    void onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg);
+    void publishVelocity(double linear_x);
+    void stopBase();
+    bool getFrontObstacleDistance(double& distance) const;
 
     // ---- 状态 ----
     std::vector<hk_camera::msg::MissionWaypoint> waypoints_;
@@ -81,6 +97,17 @@ private:
     rclcpp::Service<hk_camera::srv::RunMission>::SharedPtr run_mission_srv_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_mission_srv_;
     rclcpp::Publisher<hk_camera::msg::MissionStatus>::SharedPtr status_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+
+    mutable std::mutex sensor_mutex_;
+    nav_msgs::msg::Odometry latest_odom_;
+    sensor_msgs::msg::LaserScan latest_scan_;
+    rclcpp::Time latest_odom_time_;
+    rclcpp::Time latest_scan_time_;
+    bool have_odom_{false};
+    bool have_scan_{false};
 
     rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
     rclcpp::Client<hk_camera::srv::SetPTZPose>::SharedPtr ptz_client_;
