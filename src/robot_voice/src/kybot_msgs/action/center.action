@@ -1,6 +1,0 @@
-uint8 state
-uint16 point_number
----
-uint8 result
----
-string message

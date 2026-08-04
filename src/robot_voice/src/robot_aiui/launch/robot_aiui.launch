@@ -1,6 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-    <node pkg="robot_aiui" type="robot_aiui" name="robot_aiui" output="screen">
-        <rosparam command="load" file="$(find robot_aiui)/config/goals.yaml" />
-    </node>
-</launch>
