@@ -213,6 +213,7 @@ class DemoListener : public IAIUIListener, public rclcpp::Node
 
 private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr image_sub_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr tts_text_sub_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr trigger_capture_client_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr prompt_update_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr target_object_pub_;
@@ -556,6 +557,11 @@ public:
         image_sub_ = this->create_subscription<std_msgs::msg::String>(
             "/vision_description", 10,
             std::bind(&DemoListener::VisionImageDescriptionCallback, this, std::placeholders::_1));
+
+        // 外部 TTS 触发入口: 任意节点(如 kybot_brain 编排器)发文字到 /tts_text 即播报
+        tts_text_sub_ = this->create_subscription<std_msgs::msg::String>(
+            "/tts_text", 10,
+            [](const std_msgs::msg::String::SharedPtr msg) { startTTS(msg->data); });
 
         trigger_capture_client_ = this->create_client<std_srvs::srv::Trigger>("/vision_trigger_capture");
 

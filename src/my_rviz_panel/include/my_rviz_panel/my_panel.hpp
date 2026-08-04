@@ -32,6 +32,7 @@ struct MissionPoint {
     int ptz_preset = 0;      // 0 = 不设置云台
     bool do_capture = true;
     std::string extra_action;
+    std::string name;        // 点位名 (供 MCP/大模型按名导航; 空则用 P1/P2 序号)
 };
 
 class MyPanel : public rviz_common::Panel {

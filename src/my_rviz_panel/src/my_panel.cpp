@@ -190,6 +190,7 @@ void MyPanel::onSaveClicked() {
     for (const auto& mp : mission_points_) {
         const auto& p = mp.nav_pose.pose;
         out << YAML::BeginMap;
+        out << YAML::Key << "name"       << YAML::Value << mp.name;
         out << YAML::Key << "pose" << YAML::Value << YAML::Flow << YAML::BeginMap
             << YAML::Key << "x"  << YAML::Value << p.position.x
             << YAML::Key << "y"  << YAML::Value << p.position.y
@@ -235,6 +236,7 @@ void MyPanel::onLoadClicked() {
             mp.ptz_preset  = node["ptz_preset"].as<int>(0);
             mp.do_capture  = node["capture"].as<bool>(true);
             mp.extra_action = node["action"].as<std::string>("");
+            mp.name         = node["name"].as<std::string>("");
             loaded.push_back(mp);
         }
     } catch (const YAML::Exception& e) {
@@ -374,6 +376,9 @@ void MyPanel::updateListWidget() {
 
         QString s = QString("P%1: [%.2f, %.2f]")
                     .arg(i + 1).arg(pos.x).arg(pos.y);
+        if (!mp.name.empty())
+            s = QString("P%1 (%2): [%.3f, %.4f]")
+                    .arg(i + 1).arg(QString::fromStdString(mp.name)).arg(pos.x).arg(pos.y);
         if (mp.ptz_preset > 0)
             s += QString(" PTZ:%1").arg(mp.ptz_preset);
         if (mp.do_capture)
