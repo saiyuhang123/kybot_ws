@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<launch>
+    <node pkg="qwen_vision" type="qwen_point.py" name="qwen_point" output="screen">
+        <param name="api_key" value="sk-f4a060eef3c747fc906b4a49731beb5c"/>
+        <param name="model" value="qwen-vl-max-latest"/>
+        <param name="base_url" value="https://dashscope.aliyuncs.com/compatible-mode/v1"/>
+    </node>
+    <node pkg="qwen_vision" type="qwen_vision.py" name="qwen_vision" output="screen">
+        <param name="api_key" value="sk-f4a060eef3c747fc906b4a49731beb5c"/>
+        <param name="model" value="qwen-vl-max-latest"/>
+        <param name="base_url" value="https://dashscope.aliyuncs.com/compatible-mode/v1"/>
+    </node>
+   
+
+    <!-- 可选：如果希望在屏幕上看到可视化画面，可以启动 img_viewer -->
+    <node pkg="usb_camera" type="img_viewer" name="img_viewer" output="screen"/>
+</launch>
+

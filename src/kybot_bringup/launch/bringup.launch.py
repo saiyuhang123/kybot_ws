@@ -3,6 +3,7 @@
 kybot_bringup.launch.py
 ========================
 统一启动 KYBOT 全部节点，只需一个终端窗口。
+mission_executor、Nav2、IMU、FAST_LIO 会自动在独立终端窗口运行。
 
 用法:
     source /home/nvidia/kybot_ws/install/setup.bash
@@ -21,7 +22,7 @@ from launch.actions import (
     LogInfo,
     TimerAction,
 )
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription
@@ -243,6 +244,56 @@ def generate_launch_description():
     )
 
     # ========================
+    # 12. 海康相机 (hk_camera_node)
+    #      use_ocr:=true 时由 ocr_camera.launch.py 接管，这里不重复启动
+    # ========================
+    hk_camera_node = Node(
+        package="hk_camera",
+        executable="hk_camera_node",
+        name="hk_camera_node",
+        output="screen",
+        condition=UnlessCondition(LaunchConfiguration("use_ocr")),
+        parameters=[{
+            "ip": "192.168.1.64",
+            "port": "8000",
+            "username": "admin",
+            "password": "a1234567",
+            "channel": "1",
+        }],
+    )
+
+    # ========================
+    # 13. 任务执行器 (mission_executor) — 单独窗口
+    # ========================
+    mission_executor_terminal = ExecuteProcess(
+        cmd=[
+            "gnome-terminal", "--title=MissionExecutor", "--",
+            "bash", "-c",
+            "source /home/nvidia/kybot_ws/install/setup.bash && "
+            "ros2 launch my_rviz_panel mission_executor.launch.py; "
+            "exec bash"
+        ],
+        name="mission_executor_terminal",
+    )
+
+    # ========================
+    # 14. Nav2 (nav2_bringup) — 单独窗口
+    # ========================
+    nav2_terminal = ExecuteProcess(
+        cmd=[
+            "gnome-terminal", "--title=Nav2", "--",
+            "bash", "-c",
+            "source /home/nvidia/kybot_ws/install/setup.bash && "
+            "ros2 launch nav2_bringup bringup_launch.py "
+            "use_sim_time:=False autostart:=True "
+            "map:=/home/nvidia/Documents/PCD/pgm_yaml/test01.yaml "
+            "params_file:=/home/nvidia/kybot_ws/src/nav2_params/param_top_akm_bs.yaml; "
+            "exec bash"
+        ],
+        name="nav2_terminal",
+    )
+
+    # ========================
     # 组装 LaunchDescription
     # ========================
     ld = LaunchDescription()
@@ -272,5 +323,8 @@ def generate_launch_description():
     ld.add_action(TimerAction(period=16.0, actions=[ekf_node]))
     ld.add_action(TimerAction(period=18.0, actions=[fast_lio_terminal]))
     ld.add_action(TimerAction(period=20.0, actions=[ocr_camera_launch]))
+    ld.add_action(TimerAction(period=21.0, actions=[hk_camera_node]))
+    ld.add_action(TimerAction(period=22.0, actions=[mission_executor_terminal]))
+    ld.add_action(TimerAction(period=26.0, actions=[nav2_terminal]))
 
     return ld

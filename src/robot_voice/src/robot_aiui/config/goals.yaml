@@ -1,0 +1,23 @@
+goals:
+  office:   {x: 3.305,  y: 2.477,   th: 0.046}
+  toilet:   {x: 5.359,  y: -23.576, th: -1.455}
+  elevator: {x: 5.902,  y: 0.494,   th: 0.009}
+  room405:  {x: 2.987,  y: 7.342,   th: -1.528}
+  room402:  {x: -2.443, y: 13.473,  th: -1.357}
+  room406:  {x: -2.134, y: 10.739,  th: -1.408}
+
+# 这里就是 robot_aiui.cpp 会读到的 ~home（回家点）
+home: {x: 2.421, y: -5.161, th: 1.607}
+# home: {x: 6.027, y: 3.284, th: 0.095}
+
+# 这里就是 robot_aiui.cpp 会读到的 ~harvest_points
+harvest_points:
+  apple:  {x: 2.823, y: -1.360, th: -1.610}
+  orange: {x: 2.857, y: -3.646, th: -1.540}
+  pear:   {x: 2.804, y: -5.772, th: -1.581}
+  peach:  {x: 2.851, y: -7.451, th: -1.635}
+
+# 采摘循环控制参数（可选，不写就用 cpp 默认值）
+harvest_max_per_point: 1      # 每个点最多抓多少个，防止死循环
+same_pose_eps: 0.03            # m：判定“重复目标位置”的阈值
+same_pose_max_times: 3         # 连续重复多少次就认为卡住并退出

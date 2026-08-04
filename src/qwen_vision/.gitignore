@@ -1,0 +1,63 @@
+# ===== ROS / Catkin 编译产物 =====
+build/
+devel/
+bin/
+lib/
+*.stamp
+*.cmake
+
+# ===== CMake 生成文件 =====
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+CTestConfiguration.ini
+CTestCustom.cmake
+Makefile
+compile_commands.json
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+
+# ===== C/C++ 编译产物 =====
+*.o
+*.obj
+*.so
+*.a
+*.dll
+*.exe
+*.out
+*.app
+
+# ===== 测试输出 =====
+test_results/
+Testing/
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== 临时文件 =====
+*.log
+*.tmp
+tmp/
+temp/
+
+# ===== 环境配置（含密钥）=====
+.env
+*.env.local
+
+# ===== 压缩包 =====
+*.tar
+*.tar.gz
+*.zip
+*.rar

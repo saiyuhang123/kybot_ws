@@ -1,0 +1,32 @@
+//接收并查看图像消息的节点img_viewer.cpp
+#include <ros/ros.h>
+#include <image_transport/image_transport.h>
+#include <opencv2/highgui/highgui.hpp>
+#include <cv_bridge/cv_bridge.h>
+ 
+ //依赖包有std_msgs（消息传递），roscpp（c++），cv_bridge（ros和opencv图像消息转换），sensor_msgs（传感器消息），image_transport（图像编码传输）
+void imageCallback(const sensor_msgs::ImageConstPtr& msg)
+{
+  try
+  {
+    cv::imshow("view", cv_bridge::toCvShare(msg, "bgr8")->image);
+  }
+  catch (cv_bridge::Exception& e)
+  {
+    ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
+  }
+}
+ 
+int main(int argc, char **argv)
+{
+  ros::init(argc, argv, "img_viewer");
+  ros::NodeHandle nh;
+  cv::namedWindow("view");
+  cv::startWindowThread();
+  image_transport::ImageTransport it(nh);
+  image_transport::Subscriber sub = it.subscribe("camera/image", 1, imageCallback);
+  ros::spin();
+  cv::destroyWindow("view");
+  return 0;
+}
+

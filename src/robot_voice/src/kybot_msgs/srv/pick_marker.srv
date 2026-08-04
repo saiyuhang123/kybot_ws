@@ -1,0 +1,8 @@
+#geometry_msgs/Point robot_point    #机器人坐标系下的坐标,用来看暂时悬空
+uint8 number
+uint8 mode
+float64[3] position
+---
+float64[3] position
+bool success
+string message
