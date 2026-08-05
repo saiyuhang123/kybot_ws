@@ -9,6 +9,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 
+#include "trash_mission_interfaces/msg/trash_target.hpp"
 #include "hk_camera/msg/mission_waypoint.hpp"
 #include "hk_camera/msg/mission_status.hpp"
 #include "hk_camera/srv/run_mission.hpp"
@@ -50,6 +51,13 @@ public:
         const hk_camera::msg::MissionWaypoint& wp,
         const std::string& action_name)>;
 
+    /// 导航结果（M3：支持被瓶子中断）
+    enum class NavResult {
+        OK,
+        FAILED,
+        INTERRUPTED,
+    };
+
     explicit MissionExecutor(const std::string& name = "mission_executor");
     ~MissionExecutor();
 
@@ -74,12 +82,19 @@ private:
 
     // ---- 任务执行 (独立线程) ----
     void executeMission();
-    bool navigateTo(const geometry_msgs::msg::PoseStamped& pose);
+    NavResult navigateTo(const geometry_msgs::msg::PoseStamped& pose);
+    bool pickupBottle(size_t waypoint_index);
+    bool approachToBottle(double& traveled_distance);
+    bool callTriggerService(
+        rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client,
+        const std::string& name, double timeout_sec);
     bool setPTZPose(float pan, float tilt, float zoom);
     bool capturePicture();
     void publishStatus(uint8_t state, uint8_t index, const std::string& msg);
     void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg);
     void onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg);
+    void onTrashTarget(
+        const trash_mission_interfaces::msg::TrashTarget::SharedPtr msg);
     void publishVelocity(double linear_x);
     void stopBase();
     bool getFrontObstacleDistance(double& distance) const;
@@ -100,6 +115,8 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+    rclcpp::Subscription<trash_mission_interfaces::msg::TrashTarget>::SharedPtr
+        trash_sub_;
 
     mutable std::mutex sensor_mutex_;
     nav_msgs::msg::Odometry latest_odom_;
@@ -109,12 +126,27 @@ private:
     bool have_odom_{false};
     bool have_scan_{false};
 
+    // ---- 瓶子中断状态 (M3) ----
+    mutable std::mutex trash_mutex_;
+    trash_mission_interfaces::msg::TrashTarget latest_trash_;
+    bool have_trash_{false};
+    rclcpp::Time trash_stamp_;
+    // 最近一次有效瓶子距离（停车静态确认后开环逼近用）
+    double last_good_bottle_dist_{-1.0};
+    rclcpp::Time last_good_bottle_time_;
+    std::atomic<bool> bottle_interrupt_{false};
+    std::atomic<bool> bottle_confirmed_{false};
+    int bottle_candidate_count_{0};
+
     rclcpp_action::Client<NavigateToPose>::SharedPtr nav_client_;
     rclcpp::Client<hk_camera::srv::SetPTZPose>::SharedPtr ptz_client_;
     rclcpp::Client<hk_camera::srv::CapturePicture>::SharedPtr capture_client_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr login_client_;
     // 机械臂收拢 (yolo_grasp home2): 任务开始前调用, 可选
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr arm_home2_client_;
+    // 抓取/放置 (M3 自动捡瓶)
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr grasp_client_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr place_client_;
 };
 
 } // namespace my_rviz_panel

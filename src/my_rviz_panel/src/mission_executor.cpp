@@ -17,6 +17,12 @@ MissionExecutor::MissionExecutor(const std::string& name)
     declare_parameter("odom_timeout", 0.30);
     declare_parameter("front_scan_min_angle", -10.0);
     declare_parameter("front_scan_max_angle", 10.0);
+    declare_parameter("bottle_stop_distance", 0.60);
+    declare_parameter("bottle_approach_speed", 0.15);
+    declare_parameter("bottle_confirm_timeout", 5.0);
+    declare_parameter("bottle_interrupt_distance", 2.0);
+    declare_parameter("max_bottle_interrupts_per_waypoint", 2);
+    declare_parameter("bottle_candidate_frames", 3);
 
     setupServices();
     setupClients();
@@ -26,8 +32,12 @@ MissionExecutor::MissionExecutor(const std::string& name)
         "/odom", 10, std::bind(&MissionExecutor::onOdom, this, _1));
     scan_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
         "/scan_fe", 10, std::bind(&MissionExecutor::onScan, this, _1));
+    trash_sub_ =
+        create_subscription<trash_mission_interfaces::msg::TrashTarget>(
+            "/trash/target", 10,
+            std::bind(&MissionExecutor::onTrashTarget, this, _1));
 
-    RCLCPP_INFO(get_logger(), "MissionExecutor ready");
+    RCLCPP_INFO(get_logger(), "MissionExecutor ready (M3)");
 }
 
 MissionExecutor::~MissionExecutor()
@@ -78,6 +88,11 @@ void MissionExecutor::setupClients()
 
     arm_home2_client_ = create_client<std_srvs::srv::Trigger>(
         "/yolo_grasp/home2");
+
+    grasp_client_ = create_client<std_srvs::srv::Trigger>(
+        "/yolo_grasp/grasp_hold");
+    place_client_ = create_client<std_srvs::srv::Trigger>(
+        "/yolo_grasp/place");
 }
 
 void MissionExecutor::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -94,6 +109,63 @@ void MissionExecutor::onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg)
     latest_scan_ = *msg;
     latest_scan_time_ = now();
     have_scan_ = true;
+}
+
+void MissionExecutor::onTrashTarget(
+    const trash_mission_interfaces::msg::TrashTarget::SharedPtr msg)
+{
+    {
+        std::lock_guard<std::mutex> lock(trash_mutex_);
+        latest_trash_ = *msg;
+        have_trash_ = true;
+        trash_stamp_ = now();
+        // 缓存最近一次有效距离（停车静态确认 + 开环逼近用）
+        if (msg->distance_valid && msg->distance > 0.05)
+        {
+            last_good_bottle_dist_ = msg->distance;
+            last_good_bottle_time_ = now();
+        }
+    }
+
+    if (msg->stationary_confirm)
+    {
+        bottle_confirmed_ = true;
+    }
+
+    if (!mission_running_ || mission_cancel_)
+    {
+        return;
+    }
+
+    // 运动中粗检：连续多帧 detected && moving，且 D435 距离进入
+    // bottle_interrupt_distance（默认 2m）才中断导航停车。
+    // 识别到不等于停车，避免车停得太远够不着。
+    const double interrupt_dist =
+        get_parameter("bottle_interrupt_distance").as_double();
+    const double interrupt_hyst = interrupt_dist + 0.3;
+    if (!msg->detected || !msg->moving || !msg->distance_valid)
+    {
+        bottle_candidate_count_ = 0;
+        return;
+    }
+    if (msg->distance <= interrupt_dist)
+    {
+        bottle_candidate_count_++;
+    }
+    else if (msg->distance > interrupt_hyst)
+    {
+        // 距离还在 2.0~2.3m 区间时保持计数（防抖动），超过 2.3m 才清零
+        bottle_candidate_count_ = 0;
+    }
+    const int frames = get_parameter("bottle_candidate_frames").as_int();
+    if (!bottle_interrupt_.load() && bottle_candidate_count_ >= frames)
+    {
+        bottle_interrupt_ = true;
+        RCLCPP_INFO(get_logger(),
+                    "Bottle candidate confirmed (%d frames, dist %.2fm), "
+                    "interrupt nav",
+                    frames, msg->distance);
+    }
 }
 
 void MissionExecutor::publishVelocity(double linear_x)
@@ -411,19 +483,74 @@ void MissionExecutor::executeMission()
         const auto& wp = waypoints_[i];
         char buf[128];
 
-        // ---- Step 1: 导航 ----
-        snprintf(buf, sizeof(buf), "Navigating to point %zu/%zu", i + 1, total);
-        publishStatus(hk_camera::msg::MissionStatus::STATE_NAVIGATING, i, buf);
-        RCLCPP_INFO(get_logger(), "[%zu/%zu] Navigating...", i + 1, total);
+        // ---- Step 1: 导航（途中可被瓶子中断后自动捡瓶并恢复）----
+        NavResult nav_res = NavResult::FAILED;
+        int bottle_interrupts = 0;
+        const int max_interrupts =
+            get_parameter("max_bottle_interrupts_per_waypoint").as_int();
 
-        if (!navigateTo(wp.nav_pose))
+        while (true)
         {
             if (mission_cancel_) break;
+
+            // 每个导航周期重置瓶子中断状态
+            bottle_interrupt_ = false;
+            bottle_confirmed_ = false;
+            bottle_candidate_count_ = 0;
+
+            snprintf(buf, sizeof(buf), "Navigating to point %zu/%zu",
+                     i + 1, total);
+            publishStatus(hk_camera::msg::MissionStatus::STATE_NAVIGATING,
+                          i, buf);
+            RCLCPP_INFO(get_logger(), "[%zu/%zu] Navigating...", i + 1, total);
+
+            nav_res = navigateTo(wp.nav_pose);
+            if (nav_res != NavResult::INTERRUPTED)
+            {
+                break;
+            }
+
+            // 导航被瓶子中断：停车确认 → 接近 → 抓取 → 放置 → 退回
+            bottle_interrupts++;
+            RCLCPP_WARN(get_logger(),
+                        "[%zu/%zu] Bottle detected, pickup attempt %d/%d",
+                        i + 1, total, bottle_interrupts, max_interrupts);
+            const bool picked = pickupBottle(i);
+            RCLCPP_INFO(get_logger(), "[%zu/%zu] Pickup finished: %s",
+                        i + 1, total, picked ? "ok" : "failed");
+
+            if (bottle_interrupts >= max_interrupts)
+            {
+                RCLCPP_WARN(get_logger(),
+                            "[%zu/%zu] Too many interrupts, skip to next waypoint",
+                            i + 1, total);
+                break;
+            }
+            // 未超限：继续重新导航当前路点
+        }
+
+        if (mission_cancel_)
+        {
+            break;
+        }
+
+        if (nav_res == NavResult::FAILED)
+        {
             snprintf(buf, sizeof(buf), "Navigation failed at point %zu", i + 1);
             publishStatus(hk_camera::msg::MissionStatus::STATE_FAILED, i, buf);
             RCLCPP_ERROR(get_logger(), "%s", buf);
             break;
         }
+
+        if (nav_res == NavResult::INTERRUPTED)
+        {
+            // 中断次数超限，跳过当前点继续下一个
+            RCLCPP_WARN(get_logger(),
+                        "[%zu/%zu] Skip waypoint after pickup attempts",
+                        i + 1, total);
+            continue;
+        }
+
         RCLCPP_INFO(get_logger(), "[%zu/%zu] Arrived", i + 1, total);
 
         // ---- Step 2: 设置云台 ----
@@ -501,13 +628,14 @@ void MissionExecutor::executeMission()
 // 底层调用
 // ============================================================
 
-bool MissionExecutor::navigateTo(const geometry_msgs::msg::PoseStamped& pose)
+MissionExecutor::NavResult MissionExecutor::navigateTo(
+    const geometry_msgs::msg::PoseStamped& pose)
 {
     // 等待 action server
     if (!nav_client_->wait_for_action_server(5s))
     {
         RCLCPP_ERROR(get_logger(), "NavigateToPose action server not available");
-        return false;
+        return NavResult::FAILED;
     }
 
     auto goal = NavigateToPose::Goal();
@@ -517,28 +645,375 @@ bool MissionExecutor::navigateTo(const geometry_msgs::msg::PoseStamped& pose)
     if (goal_handle_future.wait_for(10s) != std::future_status::ready)
     {
         RCLCPP_ERROR(get_logger(), "Failed to send nav goal");
-        return false;
+        return NavResult::FAILED;
     }
 
     auto goal_handle = goal_handle_future.get();
     if (!goal_handle)
     {
         RCLCPP_ERROR(get_logger(), "Nav goal rejected");
-        return false;
+        return NavResult::FAILED;
     }
 
-    // 等待结果
+    // 等待结果，同时监听瓶子中断
     auto result_future = nav_client_->async_get_result(goal_handle);
-    auto status = result_future.wait_for(600s);  // 最多等 10 分钟
-    if (status != std::future_status::ready)
+    while (rclcpp::ok())
     {
-        RCLCPP_ERROR(get_logger(), "Nav timeout");
-        nav_client_->async_cancel_goal(goal_handle);
-        return false;
+        if (mission_cancel_)
+        {
+            nav_client_->async_cancel_goal(goal_handle);
+            return NavResult::FAILED;
+        }
+        if (bottle_interrupt_.load())
+        {
+            RCLCPP_INFO(get_logger(),
+                        "Bottle candidate detected, interrupting navigation");
+            nav_client_->async_cancel_goal(goal_handle);
+            return NavResult::INTERRUPTED;
+        }
+        auto status = result_future.wait_for(100ms);
+        if (status == std::future_status::ready)
+        {
+            break;
+        }
     }
 
     auto result = result_future.get();
-    return result.code == rclcpp_action::ResultCode::SUCCEEDED;
+    return result.code == rclcpp_action::ResultCode::SUCCEEDED
+               ? NavResult::OK
+               : NavResult::FAILED;
+}
+
+// ============================================================
+// M3：自动捡瓶流程
+// ============================================================
+
+bool MissionExecutor::callTriggerService(
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client,
+    const std::string& name, double timeout_sec)
+{
+    if (!client->wait_for_service(3s))
+    {
+        RCLCPP_ERROR(get_logger(), "%s NOT available (yolo_grasp.py running?)",
+                     name.c_str());
+        return false;
+    }
+    auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+    auto future = client->async_send_request(req);
+    const auto timeout =
+        std::chrono::duration<double, std::ratio<1>>(timeout_sec);
+    if (future.wait_for(timeout) != std::future_status::ready)
+    {
+        RCLCPP_ERROR(get_logger(), "%s timeout", name.c_str());
+        return false;
+    }
+    auto res = future.get();
+    RCLCPP_INFO(get_logger(), "%s result: success=%d, msg=%s",
+                name.c_str(), res->success, res->message.c_str());
+    return res->success;
+}
+
+bool MissionExecutor::pickupBottle(size_t waypoint_index)
+{
+    const double confirm_timeout =
+        get_parameter("bottle_confirm_timeout").as_double();
+    const double approach_speed =
+        get_parameter("bottle_approach_speed").as_double();
+
+    // 1. 停车确认
+    publishStatus(hk_camera::msg::MissionStatus::STATE_BOTTLE_CONFIRMING,
+                  waypoint_index, "Confirming bottle (stopped)");
+    const auto confirm_start = std::chrono::steady_clock::now();
+    bool confirmed = false;
+    while (rclcpp::ok() && !mission_cancel_)
+    {
+        if (bottle_confirmed_.load())
+        {
+            confirmed = true;
+            break;
+        }
+        const double elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                          confirm_start)
+                .count();
+        if (elapsed > confirm_timeout)
+        {
+            // 未完成静态确认：若还有新鲜的最近距离，仍按“静态距离→开环逼近”
+            // 策略继续，成败交给机械臂拍照位验证（D435 近距离本来就不稳定）
+            bool fresh_dist = false;
+            {
+                std::lock_guard<std::mutex> lock(trash_mutex_);
+                fresh_dist = last_good_bottle_dist_ > 0.0 &&
+                             (now() - last_good_bottle_time_).seconds() <= 2.0;
+            }
+            if (fresh_dist)
+            {
+                RCLCPP_WARN(get_logger(),
+                            "Bottle confirm timeout after %.1fs, but fresh "
+                            "distance exists, continue approach anyway", elapsed);
+                confirmed = true;
+                break;
+            }
+            RCLCPP_WARN(get_logger(),
+                        "Bottle confirm timeout after %.1fs, treat as false alarm",
+                        elapsed);
+            stopBase();
+            return false;
+        }
+        rclcpp::sleep_for(100ms);
+    }
+    if (mission_cancel_)
+    {
+        return false;
+    }
+    if (!confirmed)
+    {
+        RCLCPP_WARN(get_logger(), "Bottle not confirmed, resume navigation");
+        stopBase();
+        return false;
+    }
+    RCLCPP_INFO(get_logger(), "Bottle confirmed, start approach");
+
+    // 2. D435 距离接近
+    publishStatus(hk_camera::msg::MissionStatus::STATE_APPROACHING,
+                  waypoint_index, "Approaching bottle");
+    double approached = 0.0;
+    const bool approach_ok = approachToBottle(approached);
+    if (!approach_ok)
+    {
+        RCLCPP_WARN(get_logger(), "Approach failed after %.2fm", approached);
+    }
+
+    // 3. 抓取
+    bool grasped = false;
+    if (approach_ok)
+    {
+        publishStatus(hk_camera::msg::MissionStatus::STATE_GRASPING,
+                      waypoint_index, "Grasping bottle");
+        grasped = callTriggerService(
+            grasp_client_, "/yolo_grasp/grasp_hold", 120.0);
+    }
+
+    // 4. 放置
+    if (grasped)
+    {
+        publishStatus(hk_camera::msg::MissionStatus::STATE_PLACING,
+                      waypoint_index, "Placing bottle");
+        callTriggerService(place_client_, "/yolo_grasp/place", 120.0);
+    }
+
+    // 5. 原路退回
+    publishStatus(hk_camera::msg::MissionStatus::STATE_RETREATING,
+                  waypoint_index, "Retreating");
+    if (approached > 0.05)
+    {
+        double retreated = 0.0;
+        if (!driveDistance(approached, approach_speed, false, retreated))
+        {
+            RCLCPP_ERROR(get_logger(),
+                         "Retreat FAILED, car still at approach position, "
+                         "please check manually");
+        }
+    }
+    return grasped;
+}
+
+bool MissionExecutor::approachToBottle(double& traveled_distance)
+{
+    traveled_distance = 0.0;
+    const double d_stop =
+        get_parameter("bottle_stop_distance").as_double();
+    const double approach_speed =
+        get_parameter("bottle_approach_speed").as_double();
+    const double front_stop =
+        get_parameter("front_stop_distance").as_double();
+    const double scan_timeout =
+        get_parameter("scan_timeout").as_double();
+    const double odom_timeout =
+        get_parameter("odom_timeout").as_double();
+
+    // 两段式逼近：
+    //   远段（距离 > 0.9m）：D435 实时距离可靠，闭环边走边看；
+    //   近段（距离 <= 0.9m）：D435 近距离不可靠，改为里程计开环补到 d_stop；
+    //   中途丢距离：用“最后有效距离 - 已行驶距离”开环补足（限幅 max_blind）。
+    const double far_target = 0.90;
+    const double max_blind = 0.80;
+
+    // 等待里程计
+    const auto wait_start = std::chrono::steady_clock::now();
+    while (rclcpp::ok())
+    {
+        {
+            std::lock_guard<std::mutex> lock(sensor_mutex_);
+            if (have_odom_)
+            {
+                break;
+            }
+        }
+        if (mission_cancel_ ||
+            std::chrono::steady_clock::now() - wait_start > 2s)
+        {
+            stopBase();
+            RCLCPP_ERROR(get_logger(), "No fresh odometry for bottle approach");
+            return false;
+        }
+        rclcpp::sleep_for(20ms);
+    }
+
+    double start_x;
+    double start_y;
+    double start_yaw;
+    {
+        std::lock_guard<std::mutex> lock(sensor_mutex_);
+        start_x = latest_odom_.pose.pose.position.x;
+        start_y = latest_odom_.pose.pose.position.y;
+        const auto& q = latest_odom_.pose.pose.orientation;
+        start_yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                               1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    }
+
+    // ---------- 远段：闭环逼近 ----------
+    while (rclcpp::ok())
+    {
+        if (mission_cancel_)
+        {
+            stopBase();
+            return false;
+        }
+
+        // 里程计新鲜度 + 已行驶距离
+        double x, y;
+        rclcpp::Time odom_time;
+        {
+            std::lock_guard<std::mutex> lock(sensor_mutex_);
+            if (!have_odom_)
+            {
+                stopBase();
+                return false;
+            }
+            x = latest_odom_.pose.pose.position.x;
+            y = latest_odom_.pose.pose.position.y;
+            odom_time = latest_odom_time_;
+        }
+        if ((now() - odom_time).seconds() > odom_timeout)
+        {
+            stopBase();
+            RCLCPP_ERROR(get_logger(), "Odometry timeout during bottle approach");
+            return false;
+        }
+        const double projection =
+            (x - start_x) * std::cos(start_yaw) +
+            (y - start_y) * std::sin(start_yaw);
+        traveled_distance = std::max(0.0, projection);
+        if (traveled_distance > 1.5)
+        {
+            stopBase();
+            RCLCPP_ERROR(get_logger(),
+                         "Approach traveled %.2fm without reaching bottle, abort",
+                         traveled_distance);
+            return false;
+        }
+
+        // 前激光硬保护
+        {
+            rclcpp::Time scan_time;
+            bool have_scan = false;
+            {
+                std::lock_guard<std::mutex> lock(sensor_mutex_);
+                scan_time = latest_scan_time_;
+                have_scan = have_scan_;
+            }
+            if (have_scan &&
+                (now() - scan_time).seconds() <= scan_timeout)
+            {
+                double obstacle = 0.0;
+                if (getFrontObstacleDistance(obstacle) &&
+                    obstacle <= front_stop)
+                {
+                    stopBase();
+                    RCLCPP_WARN(get_logger(),
+                                "Front laser stop at %.2fm, arrived",
+                                obstacle);
+                    return true;
+                }
+            }
+        }
+
+        // 取最近一次有效距离
+        double dist = -1.0;
+        rclcpp::Time dist_time;
+        {
+            std::lock_guard<std::mutex> lock(trash_mutex_);
+            if (last_good_bottle_dist_ > 0.0)
+            {
+                dist = last_good_bottle_dist_;
+                dist_time = last_good_bottle_time_;
+            }
+        }
+        const double age = (now() - dist_time).seconds();
+
+        if (dist > 0.0 && age <= 2.0)
+        {
+            if (dist <= far_target)
+            {
+                break;  // 已进入近段，转开环
+            }
+            // 还远：按距离定速前进
+            double speed = dist > 1.2 ? 0.30 : 0.15;
+            speed = std::min(speed, approach_speed);
+            publishVelocity(speed);
+            rclcpp::sleep_for(50ms);
+            continue;
+        }
+
+        // ---------- 距离丢失/过期：用最后距离 - 已行驶开环补足 ----------
+        const double need = std::max(
+            0.0, dist - traveled_distance - d_stop);
+        stopBase();
+        if (need <= 0.02)
+        {
+            RCLCPP_INFO(get_logger(),
+                        "Bottle distance lost but already in range");
+            return true;
+        }
+        if (need > max_blind)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "Bottle distance lost (last %.2fm, traveled %.2fm), "
+                        "remaining %.2fm too far to drive blind",
+                        dist, traveled_distance, need);
+            return false;
+        }
+        RCLCPP_INFO(get_logger(),
+                    "Bottle distance lost, open-loop remaining %.2fm",
+                    need);
+        double driven = 0.0;
+        driveDistance(need, 0.08, true, driven);
+        traveled_distance += driven;
+        return true;
+    }
+
+    // ---------- 近段：开环收尾到 d_stop ----------
+    double dist = -1.0;
+    {
+        std::lock_guard<std::mutex> lock(trash_mutex_);
+        if (last_good_bottle_dist_ > 0.0)
+        {
+            dist = last_good_bottle_dist_;
+        }
+    }
+    const double need = std::max(0.0, dist - traveled_distance - d_stop);
+    stopBase();
+    RCLCPP_INFO(get_logger(),
+                "Static dist %.2fm, open-loop %.2fm to d_stop=%.2fm",
+                dist, need, d_stop);
+    if (need > 0.02)
+    {
+        double driven = 0.0;
+        driveDistance(need, approach_speed, true, driven);
+        traveled_distance += driven;
+    }
+    return true;
 }
 
 bool MissionExecutor::setPTZPose(float pan, float tilt, float zoom)
@@ -737,7 +1212,7 @@ int main(int argc, char** argv)
     node->declare_parameter("approach_speed", 0.1);     // 逼近速度 (m/s)
 
     auto grasp_trigger =
-        node->create_client<std_srvs::srv::Trigger>("/yolo_grasp/grasp");
+        node->create_client<std_srvs::srv::Trigger>("/yolo_grasp/grasp_hold");
 
     node->registerAction("grasp", [=](const hk_camera::msg::MissionWaypoint&,
                                       const std::string&) {
@@ -760,7 +1235,8 @@ int main(int argc, char** argv)
         if (approach_ok && !grasp_trigger->wait_for_service(3s))
         {
             RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
-                         "/yolo_grasp/grasp NOT available (yolo_grasp.py running?)");
+                         "/yolo_grasp/grasp_hold NOT available "
+                         "(yolo_grasp.py running?)");
         }
         else if (approach_ok)
         {
@@ -769,7 +1245,7 @@ int main(int argc, char** argv)
             if (future.wait_for(120s) != std::future_status::ready)
             {
                 RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
-                             "/yolo_grasp/grasp timeout");
+                             "/yolo_grasp/grasp_hold timeout");
             }
             else
             {

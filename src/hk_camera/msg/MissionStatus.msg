@@ -6,6 +6,11 @@ uint8 STATE_CAPTURING=3
 uint8 STATE_COMPLETED=4
 uint8 STATE_FAILED=5
 uint8 STATE_CANCELED=6
+uint8 STATE_BOTTLE_CONFIRMING=7
+uint8 STATE_APPROACHING=8
+uint8 STATE_GRASPING=9
+uint8 STATE_PLACING=10
+uint8 STATE_RETREATING=11
 
 uint8 state            # 当前状态
 uint8 current_index    # 当前执行到第几个点 (0-based)

@@ -20,6 +20,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(hk_camera REQUIRED)
+find_package(trash_mission_interfaces REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
 # 开启 Qt 编译支持 (MOC 编译器)
@@ -63,6 +64,7 @@ ament_target_dependencies(mission_executor
   nav2_msgs
   std_srvs
   hk_camera
+  trash_mission_interfaces
   geometry_msgs
   nav_msgs
   sensor_msgs

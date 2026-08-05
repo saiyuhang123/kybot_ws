@@ -32,7 +32,7 @@ controller_server:
       vx_std: 0.12       #Vx 抽样标准差，约为vx_max(0.5)的25%
       vy_std: 0.0       #Vy 的抽样标准差
       wz_std: 0.25       #Wz 抽样标准差，约为wz_max(0.62)的40%
-      vx_max: 0.5      #目标最大前进速度（米/秒）
+      vx_max: 0.25      #目标最大前进速度（米/秒）
       vx_min: -0.30     #目标最大反向速度（米/秒）
       vy_max: 0.0       #如果使用Omni运动模型，目标最大横向速度（m/s）
       wz_max: 0.62       #匹配vx_max/min_turning_r = 0.5/0.8 = 0.625 rad/s

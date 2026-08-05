@@ -18,6 +18,13 @@ def generate_launch_description():
                 'odom_timeout': 0.30,
                 'front_scan_min_angle': -10.0,
                 'front_scan_max_angle': 10.0,
+                # M3 自动捡瓶参数
+                'bottle_stop_distance': 0.55,   # D435 停车距离（米，按实测标定）
+                'bottle_approach_speed': 0.15,  # 接近速度上限（米/秒）
+                'bottle_confirm_timeout': 5.0,  # 停车确认超时（秒）
+                'bottle_interrupt_distance': 2.0,  # 运动中检测到瓶子后，距离到这个值才中断停车
+                'max_bottle_interrupts_per_waypoint': 2,
+                'bottle_candidate_frames': 3,
             }],
         ),
     ])
