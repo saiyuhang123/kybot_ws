@@ -28,6 +28,7 @@ import threading
 
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import SingleThreadedExecutor
 
 import cv2
 import json
@@ -60,6 +61,8 @@ class VisionTester(Node):
 
         # 最新数据缓存
         self.lock = threading.Lock()
+        self.status_lock = threading.Lock()
+        self.status = "Ready: click the window, then press 's' to detect"
         self.latest_vis_img = None       # 可视化图像 (numpy)
         self.latest_position = None      # PoseStamped
         self.latest_object_name = ""
@@ -100,12 +103,33 @@ class VisionTester(Node):
         # 发布目标物名称
         self.target_pub = self.create_publisher(String, '/target_object', 1)
 
+        # 后台 ROS 线程：保证订阅/服务回调在显示循环期间也能执行
+        self._spin_executor = SingleThreadedExecutor()
+        self._spin_executor.add_node(self)
+        self._spin_thread = threading.Thread(
+            target=self._spin_executor.spin, daemon=True,
+            name='vision_tester_ros_spin')
+        self._spin_thread.start()
+
         self.get_logger().info("=" * 60)
         self.get_logger().info("Vision Tester initialized!")
         self.get_logger().info(f"  Display: {self.display_enabled}")
         self.get_logger().info(f"  Save dir: {self.save_dir or '(disabled)'}")
         self.get_logger().info("  Controls: [s] trigger detect  [t] set target  [q] quit")
         self.get_logger().info("=" * 60)
+
+    def set_status(self, text: str):
+        with self.status_lock:
+            self.status = text
+        self.get_logger().info(f"[status] {text}")
+
+    def shutdown_spin_thread(self):
+        try:
+            self._spin_executor.shutdown()
+        except Exception:
+            pass
+        if self._spin_thread.is_alive():
+            self._spin_thread.join(timeout=2.0)
 
     # ---------- 回调 ----------
     def visualization_callback(self, msg: Image):
@@ -152,21 +176,34 @@ class VisionTester(Node):
     def trigger_detect(self):
         """调用同步定位服务"""
         if self.sync_locate is None:
+            self.set_status("✗ /locate_object_sync service NOT available")
             self.get_logger().error("Service /locate_object_sync not available!")
             return False
 
         try:
+            self.set_status(">>> Triggering detection...")
             self.get_logger().info(">>> Triggering detection...")
             future = self.sync_locate.call_async(Trigger.Request())
-            rclpy.spin_until_future_complete(self, future)
+
+            deadline = time.time() + 20.0
+            while rclpy.ok() and not future.done():
+                if time.time() > deadline:
+                    self.set_status("✗ Detection timeout")
+                    self.get_logger().warn("Detection timeout")
+                    return False
+                time.sleep(0.05)
+
             resp = future.result()
             if resp.success:
+                self.set_status(f"✓ {resp.message}")
                 self.get_logger().info(f"✓ Detection SUCCESS: {resp.message}")
                 return True
             else:
+                self.set_status(f"✗ Detection FAILED: {resp.message}")
                 self.get_logger().warn(f"✗ Detection FAILED: {resp.message}")
                 return False
         except Exception as e:
+            self.set_status(f"✗ Service call failed: {e}")
             self.get_logger().error(f"Service call failed: {e}")
             return False
 
@@ -178,6 +215,32 @@ class VisionTester(Node):
             return
         self.target_pub.publish(String(data=target_name))
         self.get_logger().info(f"🎯 Target set to: {target_name}")
+
+    def run_terminal_commands(self):
+        """显示模式下在后台读取终端命令，避免窗口被 input() 卡住"""
+        print("Terminal commands: s/detect, t <name>, h, q")
+        while rclpy.ok():
+            try:
+                cmd = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not cmd:
+                continue
+            parts = cmd.split(None, 1)
+            action = parts[0].lower()
+            if action in ('q', 'quit', 'exit'):
+                rclpy.shutdown()
+                break
+            elif action in ('s', 'detect'):
+                threading.Thread(target=self.trigger_detect, daemon=True).start()
+            elif action == 't' and len(parts) > 1:
+                self.set_target(parts[1])
+                time.sleep(0.3)
+                threading.Thread(target=self.trigger_detect, daemon=True).start()
+            elif action == 'h':
+                print_help()
+            else:
+                print(f"Unknown command: {cmd}")
 
     # ---------- 显示循环 ----------
     def run_display_loop(self):
@@ -194,6 +257,8 @@ class VisionTester(Node):
         placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
 
         print_help()
+        threading.Thread(target=self.run_terminal_commands, daemon=True,
+                         name='vision_tester_terminal_input').start()
 
         rate = self.create_rate(30)  # 30Hz 刷新
         while rclpy.ok():
@@ -202,6 +267,8 @@ class VisionTester(Node):
                 obj_name = self.latest_object_name
                 desc = self.latest_description
                 pos = self.latest_position
+            with self.status_lock:
+                status = self.status
 
             if img is None:
                 # 无图像时显示占位符 + 提示文字
@@ -212,6 +279,9 @@ class VisionTester(Node):
                 cv2.putText(display, "Press 's' to trigger detection",
                             (50, 270), cv2.FONT_HERSHEY_SIMPLEX,
                             0.7, (200, 200, 200), 2)
+                cv2.putText(display, status,
+                            (50, 330), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (0, 255, 255) if status.startswith("✗") else (180, 180, 180), 2)
             else:
                 display = img
 
@@ -231,9 +301,13 @@ class VisionTester(Node):
                     p = pos.pose.position
                     cv2.putText(display,
                                 f"Pos({pos.header.frame_id}): "
-                                f"({p.x:.3f}, {p.y:.3f}, {p.z:.3f})",
+                        f"({p.x:.3f}, {p.y:.3f}, {p.z:.3f})",
                                 (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX,
                                 0.5, (0, 255, 255), 2)
+                cv2.putText(display, status,
+                            (10, display.shape[0] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (0, 0, 255) if status.startswith("✗") else (255, 255, 0), 2)
 
             cv2.imshow("Vision Test - /visualization", display)
 
@@ -246,14 +320,8 @@ class VisionTester(Node):
                 # 触发一次检测
                 threading.Thread(target=self.trigger_detect, daemon=True).start()
             elif key == ord('t'):
-                # 通过终端输入目标物名称
-                print("\n" + "=" * 40)
-                target = input("Enter target object name: ").strip()
-                if target:
-                    self.set_target(target)
-                    # 设置后自动触发一次检测
-                    time.sleep(0.3)
-                    threading.Thread(target=self.trigger_detect, daemon=True).start()
+                # 在终端输入目标物名称，不阻塞窗口
+                print("Type target in the terminal:  t <name>  (e.g. t apple)")
             elif key == ord('h'):
                 print_help()
 
@@ -330,8 +398,18 @@ def main(args=None):
     except Exception as e:
         tester.get_logger().fatal(f"Fatal error: {str(e)}")
     finally:
-        tester.destroy_node()
-        rclpy.shutdown()
+        try:
+            tester.shutdown_spin_thread()
+        except Exception:
+            pass
+        try:
+            tester.destroy_node()
+        except Exception:
+            pass
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

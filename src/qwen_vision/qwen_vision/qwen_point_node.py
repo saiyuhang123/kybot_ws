@@ -46,14 +46,15 @@ class ObjectLocatorNode(Node):
         self.image_save_dir = self.get_parameter('image_save_dir').get_parameter_value().string_value
         self.debug_mode = self.get_parameter('debug').get_parameter_value().bool_value
 
-        # ===== [MOD] API key 参数化（不要写死在代码里）=====
-        # self.declare_parameter('api_key', os.getenv('DASHSCOPE_API_KEY', ''))
-        self.declare_parameter('api_key', "sk-87234c4787964295b2bc8687b1814656")
-        self.declare_parameter('base_url', "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        # ===== [MOD] API key 参数化（不要写死在代码里，由 config/qwen_vision.yaml 提供）=====
+        self.declare_parameter('api_key', os.getenv('DASHSCOPE_API_KEY', ''))
+        self.declare_parameter('base_url', os.getenv('DASHSCOPE_BASE_URL', ''))
         self.api_key = self.get_parameter('api_key').get_parameter_value().string_value
         self.base_url = self.get_parameter('base_url').get_parameter_value().string_value
         if not self.api_key:
             self.get_logger().warn("DASHSCOPE api_key is empty! Set rosparam ~api_key or env DASHSCOPE_API_KEY.")
+        if not self.base_url:
+            self.get_logger().warn("DASHSCOPE base_url is empty! Set rosparam ~base_url or env DASHSCOPE_BASE_URL.")
 
         # ===== [MOD] 同步服务等待超时（秒）=====
         self.declare_parameter('locate_timeout', 10.0)

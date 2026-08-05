@@ -29,12 +29,12 @@ class ImageDescriptionNode(Node):
         super().__init__('image_description_node')
 
         # ROS参数配置
-        self.declare_parameter('model', 'qwen-vl-max-latest')
+        self.declare_parameter('model', 'qwen3.7-plus')
         self.declare_parameter('prompt', '简短的说')
         self.declare_parameter('image_save_dir', tempfile.gettempdir())
         self.declare_parameter('debug', True)
-        self.declare_parameter('api_key', 'sk-d8349756a60e4f728d7a3e5f8fe9145c')
-        self.declare_parameter('base_url', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+        self.declare_parameter('api_key', os.getenv('DASHSCOPE_API_KEY', ''))
+        self.declare_parameter('base_url', os.getenv('DASHSCOPE_BASE_URL', ''))
 
         self.model_name = self.get_parameter('model').get_parameter_value().string_value
         self.prompt = self.get_parameter('prompt').get_parameter_value().string_value
@@ -45,6 +45,8 @@ class ImageDescriptionNode(Node):
 
         if not self.api_key:
             self.get_logger().warn('DASHSCOPE api_key is empty!')
+        if not self.base_url:
+            self.get_logger().warn('DASHSCOPE base_url is empty!')
 
         if not os.path.exists(self.image_save_dir):
             os.makedirs(self.image_save_dir)

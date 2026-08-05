@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    api_key: "sk-87234c4787964295b2bc8687b1814656"
+    base_url: "https://ws-v8pujxl0xq3m2mlx.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    model: "qwen3.7-plus"
