@@ -1,0 +1,12 @@
+brain_node:
+  ros__parameters:
+    # dashscope OpenAI 兼容端点; Key 走环境变量 DASHSCOPE_API_KEY (推荐) 或此处的 api_key
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: "qwen3.7-plus"
+    api_key: "sk-87234c4787964295b2bc8687b1814656"
+    # 点位白名单 (RViz 面板保存的文件, brain 每次调用前重新读取)
+    waypoints_file: "/home/nvidia/kybot_ws/location/location.yaml"
+    llm_timeout_sec: 60.0
+    service_timeout_sec: 10.0
+    history_max: 20
+    audit_file: "~/.kybot_brain/audit.jsonl"

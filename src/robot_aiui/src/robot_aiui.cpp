@@ -218,6 +218,7 @@ private:
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr trigger_capture_client_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr prompt_update_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr target_object_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr brain_text_pub_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr locate_sync_client_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr vision_3DLocation_sub_;
 
@@ -577,6 +578,9 @@ public:
         target_object_pub_ = this->create_publisher<std_msgs::msg::String>("/target_object",
                                                                            rclcpp::QoS(1).transient_local());
 
+        // ASR 识别文本出口: 发给 kybot_brain 编排器 (语音前端模式)
+        brain_text_pub_ = this->create_publisher<std_msgs::msg::String>("/brain_text", 10);
+
         locate_sync_client_ = this->create_client<std_srvs::srv::Trigger>("/locate_object_sync");
 
         vision_3DLocation_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -825,12 +829,22 @@ public:
     // ===== [ADD] 处理用户最终识别文本：入口函数 =====
     void handleUserUtterance(const std::string &userText)
     {
-        if (agent::handleText(userText))
-            return;
-
+        // ===== 语音前端模式: 内置 agent/skill 已停用 =====
+        // ASR 最终文本直接发 /brain_text 交给 kybot_brain 编排, 回复经 /tts_text 播报。
+        // 下面的 agent::handleText 及采摘/取物 skill 逻辑保留但不再触达,
+        // 需要恢复时删除这个 return 之前的代码块即可。
         std::string text = userText;
         RCLCPP_INFO(this->get_logger(), "用户指令(ASR最终): %s", text.c_str());
         if (text.empty())
+            return;
+
+        std_msgs::msg::String brainMsg;
+        brainMsg.data = text;
+        brain_text_pub_->publish(brainMsg);
+        return;
+
+        // ---- 以下为已停用的内置 agent/skill 逻辑 ----
+        if (agent::handleText(userText))
             return;
 
         // ===== [ADD] 采摘任务入口 =====
@@ -2166,7 +2180,7 @@ int main(int argc, char *argv[])
 #ifdef WIN32
     system("chcp 65001 >nul");
 #else
-    freopen("/dev/null", "w", stderr);
+    // 保留 stderr，便于查看新版 VTN/AIUI 的资源初始化错误。
 #endif
     image_pub = node->create_publisher<std_msgs::msg::String>("image_file_path", 10);
 

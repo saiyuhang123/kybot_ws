@@ -44,6 +44,7 @@ ros2 launch hk_camera hk_camera.launch.py
 | `ocr_interfaces` | ament_cmake | OCR msg/srv definitions |
 | `wit_ros2_imu` | ament_python | IMU driver (wit) |
 | `my_rviz_panel` | ament_cmake | RViz panel + mission executor |
+| `kybot_brain` | ament_python | LLM (Qwen) task scheduler: `/brain_text` → function calling → mission services (add-on, launched separately) |
 | `FAST_LIO_LOCALIZATION_ROS2` | ament_cmake | LiDAR localization |
 | `MK-mid-description-ros2` | ament_cmake | URDF/robot description |
 | `pcd2pgm` | ament_cmake | PCD to PGM map conversion |
