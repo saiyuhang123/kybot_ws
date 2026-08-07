@@ -6,6 +6,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -57,6 +58,7 @@ target_link_libraries(robot_aiui_node
 )
 
 ament_target_dependencies(robot_aiui_node
+  ament_index_cpp
   rclcpp
   std_msgs
   geometry_msgs

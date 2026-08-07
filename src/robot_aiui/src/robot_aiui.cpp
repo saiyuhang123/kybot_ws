@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iostream>
 #include <rclcpp/rclcpp.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include "aiui/AIUI_V2.h"
 #include "aiui/PcmPlayer_C.h"
 #include "json/json.h"
@@ -398,9 +399,12 @@ private:
 
     bool loadHarvestConfigFromParam()
     {
-        this->declare_parameter("harvest_max_per_point", harvest_max_per_point_);
-        this->declare_parameter("same_pose_eps", same_pose_eps_);
-        this->declare_parameter("same_pose_max_times", same_pose_max_times_);
+        if (!this->has_parameter("harvest_max_per_point"))
+            this->declare_parameter("harvest_max_per_point", harvest_max_per_point_);
+        if (!this->has_parameter("same_pose_eps"))
+            this->declare_parameter("same_pose_eps", same_pose_eps_);
+        if (!this->has_parameter("same_pose_max_times"))
+            this->declare_parameter("same_pose_max_times", same_pose_max_times_);
 
         harvest_max_per_point_ = this->get_parameter("harvest_max_per_point").as_int();
         same_pose_eps_ = this->get_parameter("same_pose_eps").as_double();
@@ -547,7 +551,10 @@ private:
     }
 
     // ===== 单例：禁止外部构造 =====
-    DemoListener() : rclcpp::Node("aiui_ros_node")
+    DemoListener()
+        : rclcpp::Node(
+              "aiui_ros_node",
+              rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true))
     {
     }
 
@@ -1549,6 +1556,9 @@ public:
 };
 
 IAIUIAgent *g_pAgent = nullptr;
+std::string g_aiui_dir;
+std::string g_msc_dir;
+std::string g_cfg_file_path;
 
 #ifdef AIUI_ANDROID
 #define TEST_ROOT_DIR "/sdcard/AIUI/"
@@ -1622,14 +1632,15 @@ string readFileAsString(const string &path)
 #define SEND_AIUIMESSAGE2(cmd, arg1) SEND_AIUIMESSAGE3(cmd, arg1, 0)
 #define SEND_AIUIMESSAGE1(cmd) SEND_AIUIMESSAGE2(cmd, 0)
 
-void createAgent(bool more = true, const char *cfgPath = CFG_FILE_PATH)
+void createAgent(bool more = true, const char *cfgPath = nullptr)
 {
     if (g_pAgent)
     {
         return;
     }
 
-    string aiuiParams = readFileAsString(cfgPath);
+    const std::string config_path = cfgPath != nullptr ? cfgPath : g_cfg_file_path;
+    string aiuiParams = readFileAsString(config_path);
 
     Json::Value paramJson;
     Json::Reader reader;
@@ -1646,7 +1657,7 @@ void createAgent(bool more = true, const char *cfgPath = CFG_FILE_PATH)
 
     if (!g_pAgent)
     {
-        std::cout << string(cfgPath) << ", " << reader.getFormatedErrorMessages() << std::endl;
+        std::cout << config_path << ", " << reader.getFormatedErrorMessages() << std::endl;
         return;
     }
 }
@@ -2126,8 +2137,18 @@ static void GenerateMACAddress(char *mac)
 
 static void initSetting(bool log = true)
 {
-    AIUISetting::setAIUIDir(TEST_ROOT_DIR);
-    AIUISetting::setMscDir(MSC_DIR);
+#ifdef AIUI_ANDROID
+    g_aiui_dir = TEST_ROOT_DIR;
+    g_msc_dir = MSC_DIR;
+    g_cfg_file_path = CFG_FILE_PATH;
+#else
+    g_aiui_dir = ament_index_cpp::get_package_share_directory("robot_aiui") + "/AIUI/";
+    g_msc_dir = g_aiui_dir + "msc/";
+    g_cfg_file_path = g_aiui_dir + "cfg/aiui.cfg";
+#endif
+
+    AIUISetting::setAIUIDir(g_aiui_dir.c_str());
+    AIUISetting::setMscDir(g_msc_dir.c_str());
     AIUISetting::setNetLogLevel(log ? aiui_debug : aiui_none);
 
     char mac[64] = {0};

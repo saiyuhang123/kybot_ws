@@ -255,10 +255,10 @@ def generate_launch_description():
         condition=UnlessCondition(LaunchConfiguration("use_ocr")),
         parameters=[{
             "ip": "192.168.1.64",
-            "port": "8000",
+            "port": 8000,
             "username": "admin",
             "password": "a1234567",
-            "channel": "1",
+            "channel": 1,
         }],
     )
 
