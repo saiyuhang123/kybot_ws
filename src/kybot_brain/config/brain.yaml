@@ -8,5 +8,7 @@ brain_node:
     waypoints_file: "/home/nvidia/kybot_ws/location/location.yaml"
     llm_timeout_sec: 60.0
     service_timeout_sec: 10.0
+    nav_timeout_sec: 300.0    # navigate_and_wait 等导航终态的上限
+    arm_timeout_sec: 130.0    # 机械臂 Trigger 调用上限 (elite 侧最长约 120s)
     history_max: 20
     audit_file: "~/.kybot_brain/audit.jsonl"

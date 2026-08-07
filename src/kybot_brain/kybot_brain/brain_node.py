@@ -2,24 +2,31 @@
 
 输入: 订阅 /brain_text (std_msgs/String)
 输出: 发布 /brain_reply (回复) 和 /tts_text (为语音播报预留)
-执行: 复用 /mission/run, /mission/cancel, /mission/status, /hk_camera/capture
+执行: 复用 /mission/run, /mission/cancel, /mission/status, /hk_camera/capture,
+      /yolo_grasp/* (elite 侧)
 
-线程模型: 主线程 rclpy.spin 处理订阅; LLM 循环 + 服务调用在独立工作线程,
-长任务(导航)异步, 靠 /mission/status 终态事件回填会话.
+线程模型: 主线程 rclpy.spin 处理订阅; LLM 循环 + 服务调用在独立工作线程。
+执行范式: 分步同步——navigate_and_wait 等工具阻塞等真实结果(导航靠等
+/mission/status 终态), LLM 逐步决策; 等待期间收到新指令(如"取消")会
+中断等待并优先处理新指令。
 """
 
 import json
 import os
 import queue
 import threading
+import time
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Twist
 
 from hk_camera.msg import MissionStatus
 from .llm_client import LLMClient, LLMError
-from .tools import STATE_NAMES, TOOL_SCHEMAS, ToolExecutor
+from .tools import STATE_NAMES, TOOL_SCHEMAS, ToolExecutor, WaitInterrupted
 from .waypoints import load_waypoints
 
 MAX_LLM_ROUNDS = 8  # 与 agent_bridge.cpp 一致
@@ -30,20 +37,29 @@ TERMINAL_STATES = {
 }
 
 SYSTEM_PROMPT_TMPL = """你是巡检机器人 KYBOT 的调度助手, 通过调用工具控制机器人。
-当前点位白名单(名称 — 到达后动作):
+当前点位白名单(名称 — 该点 yaml 预配置的动作):
 {waypoint_lines}
 
-规则:
-1. 去单个点位调 goto_waypoint, name 必须严格使用白名单里的名称;
-   不确定名字时先调 list_waypoints 拿最新名单; 名单里没有就如实说去不了, 不许编造。
-2. 一句话要求依次去多个点位(含"去X之后再回来"的往返)时, 调 run_route 一次性下发,
-   不要拆成多次 goto_waypoint; "回来/返回"的目标也必须是白名单里的点位名。
-   白名单中没有名字含"出发点/起点/家/原位"的点位时, "回来"一律先反问用户
-   回到哪个点位, 严禁拿刚去过的点位充当返程点。
-3. 任务是异步的: 工具返回"已启动"就告诉用户已开始执行, 不要反复调用;
-   之后收到"[任务事件]"消息时, 用一句话转告用户结果。
-4. 用户问进度就调 get_mission_status; 用户说停/取消就调 cancel_mission。
-5. 全部用简洁的中文口语回答, 一两句话说完。"""
+工作方式: 分步同步执行。
+1. 把用户的复合指令拆成有序步骤, 一步一步调用工具。每个工具都返回真实执行结果,
+   必须看上一步结果再决定下一步: 失败就停止后续步骤并向用户说明原因, 不要硬往下走。
+2. 导航用 navigate_and_wait: 纯导航, 会等到真正到达/失败才返回(不触发点位yaml
+   预配置的拍照/抓取动作, 那些由你按需单独调用: grasp 抓取、place 放置、
+   capture_photo 拍照、arm_home 收臂、arm_ready 预备)。
+   抓取前必须先调 approach 慢速逼近到目标跟前(雷达自动停车), 再调 grasp;
+   grasp 结束后会自动后退到导航位置, 不用你额外处理。
+3. 只有"纯多点跑圈巡检、途中不需要看结果做决定"时才用 run_route 一次下发;
+   单点快速前往(不等结果)才用 goto_waypoint。
+4. "回来/返回"的目标也必须是白名单里的点位名; 白名单中没有名字含
+   "出发点/起点/家/原位"的点位时, "回来"一律先反问用户回到哪里, 严禁自己猜。
+5. 名字严格用白名单; 不确定先调 list_waypoints; 名单里没有的说去不了, 不许编造。
+   用户要求的动作超出点位配置/工具能力时, 如实说明做不到, 不许假装做了。
+6. 用户问进度调 get_mission_status; 用户说停/取消调 cancel_mission; 只有用户明确说"停/取消/别去了"才允许取消。
+7. 收到听不清、无意义或闲聊性质的话(如唤醒词、误识别)时, 不要调用任何会改变
+   机器人状态的工具(导航/取消/抓取等), 用一句话询问或回应即可。
+8. 工具返回互相矛盾(如取消说没任务、状态却说运行中)时, 不要反复重试同一工具,
+   如实告诉用户系统状态异常、建议检查底层, 然后结束本轮。
+7. 全部用简洁的中文口语回答, 一两句话说完。"""
 
 
 class BrainNode(Node):
@@ -67,11 +83,28 @@ class BrainNode(Node):
         self._messages = [{'role': 'system',
                            'content': self._build_system_prompt()}]
         self._last_status = None
+        self._waiting = 0  # >0 表示有同步工具在等任务终态, 期间不重复播报事件
+        self._interrupt = threading.Event()  # 新指令到达时置位, 中断等待
+        self._last_odom = None       # (Odometry, 接收时刻 monotonic)
+        self._last_scan = None       # (LaserScan, 接收时刻 monotonic)
+
+        # /cmd_vel 发布器: approach 工具慢速逼近用 (与 executor 同一入口)
+        cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
         # 工具执行器
         self._tools = ToolExecutor(
             self, self._waypoints_file, self._get_status,
             service_timeout_sec=self._service_timeout,
+            nav_timeout_sec=self._nav_timeout,
+            arm_timeout_sec=self._arm_timeout,
+            interrupt_check=self._interrupt.is_set,
+            set_waiting=self._set_waiting,
+            odom_provider=self._get_odom,
+            scan_provider=self._get_scan,
+            cmd_vel_pub=cmd_vel_pub,
+            approach_speed=self._approach_speed,
+            approach_stop_distance=self._approach_stop_distance,
+            approach_max_distance=self._approach_max_distance,
             audit_file=self._audit_file)
 
         # ROS 接线
@@ -80,6 +113,8 @@ class BrainNode(Node):
         self.create_subscription(String, '/brain_text', self._on_text, 10)
         self.create_subscription(MissionStatus, '/mission/status',
                                  self._on_status, 10)
+        self.create_subscription(Odometry, '/odom', self._on_odom, 10)
+        self.create_subscription(LaserScan, '/scan_fe', self._on_scan, 10)
 
         # LLM 工作线程: 回调只入队, 避免阻塞 executor
         self._queue = queue.Queue()
@@ -101,6 +136,12 @@ class BrainNode(Node):
                                '/home/nvidia/kybot_ws/location/location.yaml')
         self.declare_parameter('llm_timeout_sec', 60.0)
         self.declare_parameter('service_timeout_sec', 10.0)
+        self.declare_parameter('nav_timeout_sec', 300.0)   # 导航等终态上限
+        self.declare_parameter('arm_timeout_sec', 130.0)   # 机械臂调用上限
+        # approach 逼近参数, 与 mission_executor 的 driveDistance 一致
+        self.declare_parameter('approach_speed', 0.1)          # m/s
+        self.declare_parameter('approach_stop_distance', 0.6)  # 前方障碍早停 (m)
+        self.declare_parameter('approach_max_distance', 1.5)   # 单次逼近上限 (m)
         self.declare_parameter('history_max', 20)
         self.declare_parameter('audit_file', '~/.kybot_brain/audit.jsonl')
 
@@ -112,6 +153,11 @@ class BrainNode(Node):
         self._waypoints_file = p('waypoints_file').value
         self._llm_timeout = p('llm_timeout_sec').value
         self._service_timeout = p('service_timeout_sec').value
+        self._nav_timeout = p('nav_timeout_sec').value
+        self._arm_timeout = p('arm_timeout_sec').value
+        self._approach_speed = p('approach_speed').value
+        self._approach_stop_distance = p('approach_stop_distance').value
+        self._approach_max_distance = p('approach_max_distance').value
         self._history_max = p('history_max').value
         self._audit_file = p('audit_file').value
 
@@ -131,6 +177,7 @@ class BrainNode(Node):
         text = msg.data.strip()
         if text:
             self.get_logger().info('收到指令: %s' % text)
+            self._interrupt.set()  # 打断正在进行的等待 (如导航中收到"取消")
             self._queue.put(text)
 
     def _on_status(self, msg):
@@ -138,21 +185,46 @@ class BrainNode(Node):
         with self._lock:
             prev = self._last_status
             self._last_status = msg
-        if prev is None or prev.state == msg.state:
-            return
-        if msg.state in TERMINAL_STATES:
+            if prev is None or prev.state == msg.state:
+                return
+            if msg.state not in TERMINAL_STATES:
+                return
+            # 与状态更新同一把锁里读 _waiting, 否则等待中的工作线程
+            # 可能在两把锁之间把 _waiting 清零, 造成重复播报
+            waiting = self._waiting > 0
             text = '%s%s' % (TERMINAL_STATES[msg.state],
                              (': ' + msg.message) if msg.message else '')
-            self.get_logger().info('任务终态: %s' % text)
+            self._messages.append(
+                {'role': 'system', 'content': '[任务事件] ' + text})
+            self._trim_history_locked()
+        self.get_logger().info('任务终态: %s' % text)
+        # 有同步工具在等终态时, 结果会经工具返回给 LLM, 不重复播报
+        if not waiting:
             self._announce(text)
-            with self._lock:
-                self._messages.append(
-                    {'role': 'system', 'content': '[任务事件] ' + text})
-                self._trim_history_locked()
 
     def _get_status(self):
         with self._lock:
             return self._last_status
+
+    def _on_odom(self, msg):
+        with self._lock:
+            self._last_odom = (msg, time.monotonic())
+
+    def _on_scan(self, msg):
+        with self._lock:
+            self._last_scan = (msg, time.monotonic())
+
+    def _get_odom(self):
+        with self._lock:
+            return self._last_odom
+
+    def _get_scan(self):
+        with self._lock:
+            return self._last_scan
+
+    def _set_waiting(self, active):
+        with self._lock:
+            self._waiting += 1 if active else -1
 
     # ---------- LLM 循环 (工作线程) ----------
 
@@ -167,6 +239,7 @@ class BrainNode(Node):
                 self.get_logger().error('处理指令异常: %s' % exc)
 
     def _handle(self, text):
+        self._interrupt.clear()  # 新回合开始, 清掉自己的中断标记
         with self._lock:
             self._messages[0] = {'role': 'system',
                                  'content': self._build_system_prompt()}
@@ -191,14 +264,30 @@ class BrainNode(Node):
                     self._announce(reply)
                 return
 
-            for call in tool_calls:
+            for i, call in enumerate(tool_calls):
                 func = call.get('function', {})
                 name = func.get('name', '')
                 try:
                     args = json.loads(func.get('arguments') or '{}')
                 except ValueError:
                     args = {}
-                result = self._tools.execute(name, args)
+                try:
+                    result = self._tools.execute(name, args)
+                except WaitInterrupted:
+                    # 等待被新指令打断: 补齐未应答的 tool_call 保持历史合法,
+                    # 然后结束本回合, 新指令由 worker 循环取出处理
+                    with self._lock:
+                        for rest in tool_calls[i:]:
+                            self._messages.append({
+                                'role': 'tool',
+                                'tool_call_id': rest.get('id', ''),
+                                'name': rest.get('function', {}).get('name', ''),
+                                'content': '(等待被用户新指令中断。注意: 该任务可能仍在'
+                                           '后台执行, 处理新指令前先用 get_mission_status '
+                                           '确认任务状态, 不要盲目重发导航或取消)',
+                            })
+                    self.get_logger().info('等待被新指令中断, 转交新指令')
+                    return
                 with self._lock:
                     self._messages.append({
                         'role': 'tool',
