@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=KYBOT启动面板
+Comment=一键启动 定位Nav/机械臂抓取/语音调度/语音前端
+Exec=python3 /home/nvidia/kybot_ws/tools/launcher.py
+Type=Application
+Terminal=false
+Categories=Utility;
