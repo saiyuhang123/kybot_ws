@@ -173,11 +173,16 @@ class BrainNode(Node):
 
     # ---------- ROS 回调 ----------
 
+    # 只有明确的控制/转向意图才打断执行中的等待(导航/逼近);
+    # 查状态、闲聊等新指令排队处理, 不打断 (语音场景误识别多, 全部打断会误杀任务)
+    INTERRUPT_KEYWORDS = ('停', '取消', '别', '算了', '回')
+
     def _on_text(self, msg):
         text = msg.data.strip()
         if text:
             self.get_logger().info('收到指令: %s' % text)
-            self._interrupt.set()  # 打断正在进行的等待 (如导航中收到"取消")
+            if any(k in text for k in self.INTERRUPT_KEYWORDS):
+                self._interrupt.set()
             self._queue.put(text)
 
     def _on_status(self, msg):
@@ -282,9 +287,9 @@ class BrainNode(Node):
                                 'role': 'tool',
                                 'tool_call_id': rest.get('id', ''),
                                 'name': rest.get('function', {}).get('name', ''),
-                                'content': '(等待被用户新指令中断。注意: 该任务可能仍在'
-                                           '后台执行, 处理新指令前先用 get_mission_status '
-                                           '确认任务状态, 不要盲目重发导航或取消)',
+                                'content': '(该步骤被用户新指令中断, 未完成, 不要当作已成功。'
+                                           '若是导航步骤, 任务可能仍在后台执行, 请先用 '
+                                           'get_mission_status 确认状态再决定下一步)',
                             })
                     self.get_logger().info('等待被新指令中断, 转交新指令')
                     return

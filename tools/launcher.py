@@ -80,6 +80,28 @@ FIXED_CMDS = {
     'rviz': ('RViz', KYBOT_SETUP + 'rviz2'),
 }
 
+# 建图组 (对应 ~/Documents/start_fastlioMapping.sh 的四个组件,
+# 直接以子进程方式管理, 不弹 gnome-terminal, killpg 即可全停;
+# delay 沿用原脚本的错峰秒数)
+DOC = '/home/nvidia/Documents'
+MAPPING_CMDS = [
+    ('mapping_imu', '建图-IMU',
+     SETUP_ENV + 'source %s/wit_ros2_imu_src/install/setup.bash && '
+     'ros2 run wit_ros2_imu wit_ros2_imu --ros-args '
+     '-p port:=/dev/ttyCH341USB0 -p baudrate:=921600' % DOC, 0),
+    ('mapping_lidar', '建图-雷达',
+     SETUP_ENV + 'source %s/rslidar_ros2_ws/install/setup.bash && '
+     'ros2 launch rslidar_sdk start.py' % DOC, 5),
+    ('mapping_rs', '建图-点云转换',
+     SETUP_ENV + 'source %s/rs_to_velodyne-master/install/setup.bash && '
+     'ros2 run rs_to_velodyne rs_to_velodyne' % DOC, 10),
+    ('mapping_fastlio', '建图-FAST_LIO2',
+     SETUP_ENV + 'source %s/fast_lio2_ws/install/setup.bash && '
+     'ros2 launch fast_lio mapping.launch.py config_file:=rslidar_wit.yaml' % DOC, 18),
+]
+# 与建图互斥的组 (建图开启时这些必须停用)
+MUTEX_WITH_MAPPING = ('nav', 'arm', 'brain', 'aiui')
+
 LOG_LINE_LIMIT = 5000
 
 
@@ -211,6 +233,7 @@ class MainWindow(QMainWindow):
         self._seq_steps = []      # 一键启动的待执行步骤
         self._seq_wait_until = 0.0
         self._seq_ready_fn = None
+        self._oneshots = []       # 一次性命令的 QProcess (防 GC)
 
         self.probe = RosProbe()
         self._build_ui()
@@ -255,9 +278,15 @@ class MainWindow(QMainWindow):
         gv = QVBoxLayout(groups_box)
         for key, title in [('nav', '定位 + Nav'), ('arm', '机械臂抓取'),
                            ('brain', '语音调度'), ('aiui', '语音前端'),
-                           ('rviz', 'RViz')]:
+                           ('rviz', 'RViz'), ('mapping', '建图 (FAST_LIO2)')]:
             row = self._make_group_row(key, title, gv)
             self._rows[key] = row
+        # 建图行加"保存建图"按钮 (调用 /map_save)
+        self._btn_save_map = QPushButton('保存')
+        self._btn_save_map.setFixedWidth(48)
+        self._btn_save_map.clicked.connect(self._save_map)
+        mh = self._rows['mapping']['btn_log'].parent().layout()
+        mh.addWidget(self._btn_save_map)
         left.addWidget(groups_box)
 
         # 全局按钮
@@ -364,12 +393,27 @@ class MainWindow(QMainWindow):
             self._start_group(key)
 
     def _start_group(self, key):
+        if key == 'mapping':
+            busy = [k for k in MUTEX_WITH_MAPPING if self._group_running(k)]
+            if busy:
+                names = '、'.join(self._rows[k]['title'] for k in busy)
+                ret = QMessageBox.question(
+                    self, '互斥确认',
+                    '建图与以下功能互斥:\n%s\n\n将先停止它们再开启建图, 继续?' % names)
+                if ret != QMessageBox.Yes:
+                    return
+                for k in busy:
+                    self._stop_group(k)
+        # 先清掉手动脚本/上次残留的同名进程, 防重复节点
+        for pattern in self.SWEEP_PATTERNS.get(key, []):
+            self._do_sweep(pattern)
         cmds = self._group_cmds(key)
         if not cmds:
             return
-        for i, (pkey, title, cmd) in enumerate(cmds):
-            delay = 0
-            if key == 'arm' and i > 0:
+        for i, spec in enumerate(cmds):
+            pkey, title, cmd = spec[0], spec[1], spec[2]
+            delay = spec[3] if len(spec) > 3 else 0
+            if key == 'arm' and i > 0 and len(spec) <= 3:
                 delay = MODES[self._mode]['arm_grasp_delay_s']
             self._start_proc(pkey, title, cmd, delay_s=delay)
         self._sys_log('启动组: %s' % self._rows[key]['title'])
@@ -380,6 +424,8 @@ class MainWindow(QMainWindow):
             return [('nav', '定位Nav', mode['nav_cmd'])]
         if key == 'arm':
             return mode['arm_cmds']
+        if key == 'mapping':
+            return MAPPING_CMDS
         title, cmd = FIXED_CMDS[key]
         return [(key, title, cmd)]
 
@@ -408,12 +454,55 @@ class MainWindow(QMainWindow):
             if (k == key or k.startswith(key + '_')) and p.running():
                 p.stop()
         self._sys_log('停止组: %s' % self._rows[key]['title'])
+        self._sweep_group(key)
+
+    # 脱离进程组的"弹窗进程"特征 (gnome-terminal 由系统服务代管,
+    # 不在 launch 的进程组里, killpg 够不到, 按命令行特征精准清理)
+    SWEEP_PATTERNS = {
+        'arm': [r'yolo_grasp[.]py'],
+        'nav': [r'wit_ros2_im[u]',           # IMU 终端窗
+                r'velodyne_localizatio[n]',  # FAST_LIO 定位终端窗
+                r'mission_executor[.]launch',  # mission_executor 终端窗
+                r'nav2_bringu[p]'],          # Nav2 终端窗
+        'mapping': [r'wit_ros2_im[u]',       # 建图脚本的 IMU 窗
+                    r'rslidar_sd[k]',        # 建图脚本的雷达窗
+                    r'rs_to_velodyn[e]',     # 建图脚本的转换窗
+                    r'mapping[.]launch'],    # 建图脚本的 FAST_LIO2 窗
+    }
+
+    def _sweep_group(self, key):
+        for pattern in self.SWEEP_PATTERNS.get(key, []):
+            # 延时 1s 执行, 让 killpg 先生效, 这里只清漏网的
+            QTimer.singleShot(1000, lambda p=pattern: self._do_sweep(p))
+
+    def _do_sweep(self, pattern):
+        # 方括号写法: 自身命令行不会被正则匹配到
+        r = subprocess.run(['pgrep', '-f', pattern],
+                           capture_output=True, text=True)
+        pids = [int(p) for p in r.stdout.split()
+                if p.strip() and int(p) != os.getpid()]
+        killed = []
+        for pid in pids:
+            try:
+                if os.getpgid(pid) == pid:
+                    # 窗口 shell 是会话 leader: 杀整组(连带到其子进程树)
+                    os.killpg(pid, signal.SIGTERM)
+                    killed.append('%d(组)' % pid)
+                else:
+                    os.kill(pid, signal.SIGTERM)
+                    killed.append(str(pid))
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        if killed:
+            self._sys_log('清理残留进程(%s): %s' % (pattern, ' '.join(killed)))
 
     def _stop_all(self):
         self._seq_steps = []
         for p in self._procs.values():
             if p.running():
                 p.stop()
+        for key in self.SWEEP_PATTERNS:
+            self._sweep_group(key)
         self._status_label.setText('已全部停止')
 
     # ---------- CAN ----------
@@ -435,6 +524,25 @@ class MainWindow(QMainWindow):
                 self._sys_log('%s 配置完成' % iface)
             else:
                 self._sys_log('%s 配置失败: %s' % (iface, r.stderr.strip()))
+
+    # ---------- 保存建图 ----------
+
+    def _save_map(self):
+        """一次性调用 /map_save (fast_lio2_ws 环境), 输出进系统日志."""
+        self._sys_log('调用 /map_save 保存建图...')
+        cmd = (SETUP_ENV + 'source %s/fast_lio2_ws/install/setup.bash && '
+               'ros2 service call /map_save std_srvs/srv/Trigger "{}"' % DOC)
+        qp = QProcess(self)
+        qp.setProcessChannelMode(QProcess.MergedChannels)
+        qp.readyReadStandardOutput.connect(
+            lambda: self._sys_log(
+                'map_save: ' + bytes(qp.readAllStandardOutput())
+                .decode('utf-8', 'replace').strip()[:300]))
+        qp.finished.connect(
+            lambda: (self._sys_log('map_save 调用结束 (exit=%d)' % qp.exitCode()),
+                     self._oneshots.remove(qp)))
+        self._oneshots.append(qp)
+        qp.start('bash', ['-c', cmd])
 
     # ---------- 一键启动 ----------
 
@@ -496,6 +604,18 @@ class MainWindow(QMainWindow):
     def _refresh_buttons(self):
         for key, row in self._rows.items():
             row['btn'].setText('停止' if self._group_running(key) else '启动')
+        # 建图互斥: 建图运行时, 导航/机械臂/语音/一键启动/模式切换全部禁用
+        mapping_on = self._group_running('mapping')
+        for k in MUTEX_WITH_MAPPING:
+            self._rows[k]['btn'].setEnabled(not mapping_on)
+        self._btn_all.setEnabled(not mapping_on)
+        self._radio_two.setEnabled(not mapping_on)
+        self._radio_hand.setEnabled(not mapping_on)
+        # 保存建图: 只有 /map_save 服务在线才可点
+        try:
+            self._btn_save_map.setEnabled(self.probe.has_service('/map_save'))
+        except Exception:
+            self._btn_save_map.setEnabled(False)
 
     def _refresh_status(self):
         self._refresh_buttons()
@@ -506,6 +626,7 @@ class MainWindow(QMainWindow):
             'brain': lambda: self.probe.has_node('brain_node'),
             'aiui': lambda: self.probe.has_node('aiui_ros_node'),
             'rviz': lambda: self.probe.has_node('rviz'),
+            'mapping': lambda: self.probe.has_service('/map_save'),
         }
         for key, check in checks.items():
             if self._group_running(key):
