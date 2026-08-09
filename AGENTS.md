@@ -17,6 +17,10 @@ ros2 launch kybot_bringup bringup.launch.py
 ros2 launch ocr_node ocr_node.launch.py
 ros2 run hk_camera hk_camera_gui
 ros2 launch hk_camera hk_camera.launch.py
+
+# Voice/LLM scheduler & launcher GUI — see 语音调度与启动面板使用说明.md
+ros2 launch kybot_brain kybot_brain.launch.py
+python3 tools/launcher.py
 ```
 
 ## Architecture

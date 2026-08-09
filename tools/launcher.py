@@ -18,27 +18,47 @@ import time
 KYBOT_WS = '/home/nvidia/kybot_ws'
 ELITE_WS = '/home/nvidia/Documents/elite_robot_ws'
 
-# ---------- 环境自举: 未 source ROS 时自动注入, 保证双击可用 ----------
-if 'ROS_DISTRO' not in os.environ:
+# ---------- 环境自举: 保证双击/任意终端可用 ----------
+def _need_bootstrap():
+    if 'ROS_DISTRO' not in os.environ:
+        return True
+    try:  # 只有 ROS 主环境没 source 工作区时, 探针 import 会全灭
+        import hk_camera.msg  # noqa: F401
+        return False
+    except ImportError:
+        return True
+
+if _need_bootstrap() and os.environ.get('KYBOT_LAUNCHER_BOOT') != '1':
+    # PYTHONPATH/LD_LIBRARY_PATH 对已启动进程无效, 注入环境后重启自身
     try:
         out = subprocess.check_output(
-            ['bash', '-c', 'source /opt/ros/humble/setup.bash && env'],
+            ['bash', '-c',
+             'source /opt/ros/humble/setup.bash && '
+             'source %s/install/setup.bash && env' % KYBOT_WS],
             text=True, stderr=subprocess.DEVNULL)
+        env = dict(os.environ)
         for line in out.splitlines():
             k, _, v = line.partition('=')
             if k:
-                os.environ[k] = v
-    except subprocess.CalledProcessError:
-        pass  # rclpy 不可用时降级为"仅进程管理"模式
+                env[k] = v
+        env['ROS_DOMAIN_ID'] = '42'
+        env['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
+        env['KYBOT_LAUNCHER_BOOT'] = '1'
+        os.execvpe(sys.executable, [sys.executable] + sys.argv, env)
+    except Exception:
+        pass  # 失败则降级为"仅进程管理"模式继续
 os.environ['ROS_DOMAIN_ID'] = '42'
 os.environ['RMW_IMPLEMENTATION'] = 'rmw_cyclonedds_cpp'
 
-from PyQt5.QtCore import QProcess, Qt, QTimer  # noqa: E402
-from PyQt5.QtGui import QColor, QPalette  # noqa: E402
+import yaml  # noqa: E402
+
+from PyQt5.QtCore import QProcess, Qt, QTimer, pyqtSignal  # noqa: E402
 from PyQt5.QtWidgets import (QApplication, QButtonGroup, QCheckBox,  # noqa: E402
-                             QGroupBox, QHBoxLayout, QLabel, QMainWindow,
-                             QMessageBox, QPlainTextEdit, QPushButton,
-                             QRadioButton, QTabWidget, QVBoxLayout, QWidget)
+                             QComboBox, QFileDialog, QFormLayout,
+                             QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+                             QListWidget, QMainWindow, QMessageBox,
+                             QPlainTextEdit, QPushButton, QRadioButton,
+                             QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 SETUP_ENV = ('source /opt/ros/humble/setup.bash && '
              'export ROS_DOMAIN_ID=42 && '
@@ -77,6 +97,8 @@ MODES = {
 FIXED_CMDS = {
     'brain': ('语音调度', KYBOT_SETUP + 'ros2 launch kybot_brain kybot_brain.launch.py'),
     'aiui': ('语音前端', KYBOT_SETUP + 'ros2 launch robot_aiui robot_aiui.launch.py'),
+    'camera': ('海康相机', KYBOT_SETUP + 'ros2 run hk_camera hk_camera_node'),
+    'ocr': ('OCR识别', KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
     'rviz': ('RViz', KYBOT_SETUP + 'rviz2'),
 }
 
@@ -102,6 +124,30 @@ MAPPING_CMDS = [
 # 与建图互斥的组 (建图开启时这些必须停用)
 MUTEX_WITH_MAPPING = ('nav', 'arm', 'brain', 'aiui')
 
+# 任务点位页
+MISSION_STATE_NAMES = {
+    0: '空闲', 1: '导航中', 2: '云台运动中', 3: '拍照中', 4: '已完成',
+    5: '失败', 6: '已取消', 7: '目标确认中', 8: '逼近目标中', 9: '抓取中',
+    10: '放置中', 11: '退回中',
+}
+MISSION_FREE_STATES = {0, 4, 5, 6}
+DEFAULT_WP_FILE = KYBOT_WS + '/location/location.yaml'  # 与 brain 共用
+
+# 任务页的依赖服务 (与 nav 组互斥: bringup/trash_pipeline 也会拉起它们)
+DEP_CMDS = {
+    'dep_exec': ('任务调度 (mission_executor)',
+                 KYBOT_SETUP + 'ros2 launch my_rviz_panel mission_executor.launch.py'),
+    'dep_camera': ('海康相机 (hk_camera)',
+                   KYBOT_SETUP + 'ros2 run hk_camera hk_camera_node'),
+    'dep_ocr': ('OCR识别 (ocr_node)',
+                KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
+}
+DEP_NODE_CHECKS = {
+    'dep_exec': ('mission_executor',),
+    'dep_camera': ('hk_camera_node',),
+    'dep_ocr': ('ocr_node',),
+}
+
 LOG_LINE_LIMIT = 5000
 
 
@@ -110,6 +156,15 @@ class RosProbe:
 
     def __init__(self):
         self.node = None
+        self.tf_buffer = None
+        self.mission_status = None   # 最近一次 /mission/status
+        self.capture_hook = None     # CAPTURING 状态跳变回调 (MainWindow 赋值)
+        self.ocr_feedback_hook = None  # /ocr_feedback 话题回调
+        self.on_error = None           # 探针异常上报 (MainWindow 赋值)
+        self.init_log = []             # 初始化阶段的异常留底
+        self._prev_status = None
+        self._init_error = None
+        # 第一阶段: 核心 (rclpy + 节点 + spin) —— 失败则探针全灭
         try:
             import rclpy
             rclpy.init(args=None)
@@ -117,18 +172,96 @@ class RosProbe:
             self._rclpy = rclpy
             self._thread = threading.Thread(target=self._spin, daemon=True)
             self._thread.start()
-        except Exception:
+        except Exception as exc:
+            self._init_error = 'rclpy 初始化失败: %s' % exc
             self.node = None
+            return
+        # 第二阶段: 各功能独立挂载, 单个失败只降级对应功能
+        self._optional_init()
+
+    def _optional_init(self):
+        try:
+            from tf2_ros import Buffer, TransformListener
+            self.tf_buffer = Buffer()
+            self.tf_listener = TransformListener(self.tf_buffer, self.node)
+        except Exception as exc:
+            self._report_error('TF 监听不可用(录点功能降级): %s' % exc)
+        try:
+            from std_srvs.srv import Trigger
+            from hk_camera.msg import MissionStatus
+            from hk_camera.srv import RunMission
+            self.run_cli = self.node.create_client(RunMission, '/mission/run')
+            self.cancel_cli = self.node.create_client(Trigger, '/mission/cancel')
+            self.node.create_subscription(
+                MissionStatus, '/mission/status', self._on_mission_status, 10)
+            self.login_cli = self.node.create_client(Trigger, '/hk_camera/login')
+            self.stream_cli = self.node.create_client(Trigger,
+                                                      '/hk_camera/start_stream')
+        except Exception as exc:
+            self._report_error('任务/相机接口不可用(需 source 工作区环境): %s' % exc)
+        try:
+            from std_msgs.msg import String
+            from ocr_interfaces.srv import RecognizeText
+            self.ocr_cli = self.node.create_client(RecognizeText,
+                                                   '/ocr/recognize')
+            self.node.create_subscription(
+                String, '/ocr_feedback', self._on_ocr_feedback, 10)
+        except Exception as exc:
+            self._report_error('OCR 接口不可用: %s' % exc)
+
+    def _on_mission_status(self, msg):
+        self.mission_status = msg
+        # CAPTURING 跳变 = 任务流程里拍照发生了, 触发 OCR
+        prev, self._prev_status = self._prev_status, msg
+        if (msg.state == 3 and self.capture_hook is not None
+                and (prev is None or prev.state != 3)):
+            try:
+                self.capture_hook()
+            except Exception:
+                pass
+
+    def _on_ocr_feedback(self, msg):
+        if self.ocr_feedback_hook is not None:
+            try:
+                self.ocr_feedback_hook(msg.data)
+            except Exception:
+                pass
+
+    def lookup_pose(self, target='map', source='base_link'):
+        """查当前位姿 (录点用). 返回 dict(x..qw) 或 None."""
+        if self.tf_buffer is None:
+            return None
+        try:
+            from rclpy.time import Time
+            tf = self.tf_buffer.lookup_transform(target, source, Time())
+            t, q = tf.transform.translation, tf.transform.rotation
+            return {'x': t.x, 'y': t.y, 'z': t.z,
+                    'qx': q.x, 'qy': q.y, 'qz': q.z, 'qw': q.w}
+        except Exception:
+            return None
+
+    def _report_error(self, text):
+        self.init_log.append(text)  # 留底, MainWindow 启动后冲进系统日志
+        if self.on_error is not None:
+            try:
+                self.on_error(text)
+            except Exception:
+                pass
 
     def _spin(self):
+        # 打不死: 任何异常重建 executor 继续; 线程死亡 = ROS 图永久过期
         from rclpy.executors import SingleThreadedExecutor
-        ex = SingleThreadedExecutor()
-        ex.add_node(self.node)
-        while True:
+        while self.node is not None:
             try:
-                ex.spin_once(timeout_sec=0.5)
-            except Exception:
-                return
+                ex = SingleThreadedExecutor()
+                ex.add_node(self.node)
+                while True:
+                    ex.spin_once(timeout_sec=0.5)
+            except Exception as exc:
+                if self.node is None:
+                    return
+                self._report_error('探针 spin 异常(已自动恢复): %s' % exc)
+                time.sleep(1.0)
 
     def available(self):
         return self.node is not None
@@ -153,9 +286,11 @@ class RosProbe:
             return False
 
     def shutdown(self):
-        if self.node is not None:
+        node = self.node
+        self.node = None  # 先置空让 spin 循环退出
+        if node is not None:
             try:
-                self.node.destroy_node()
+                node.destroy_node()
                 self._rclpy.shutdown()
             except Exception:
                 pass
@@ -224,6 +359,11 @@ class Proc:
 
 
 class MainWindow(QMainWindow):
+    # 跨线程信号: rclpy spin 线程 → GUI 线程的安全投递
+    sig_sys = pyqtSignal(str)
+    sig_ocr = pyqtSignal(str)
+    sig_mission = pyqtSignal(object)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle('KYBOT 启动面板')
@@ -234,10 +374,29 @@ class MainWindow(QMainWindow):
         self._seq_wait_until = 0.0
         self._seq_ready_fn = None
         self._oneshots = []       # 一次性命令的 QProcess (防 GC)
+        self._last_ocr_trigger = 0.0  # OCR 触发去抖 (monotonic)
+        self._ocr_inflight = False    # OCR 调用在飞标志 (防并发)
+        self._prev_ms_state = None    # 任务状态边沿检测 (循环重发用)
+        self._mission_from_here = False  # 当前任务是否由本页发起 (循环重发用)
 
         self.probe = RosProbe()
         self._build_ui()
         self._apply_mode('twofinger', force=True)
+        # OCR: 巡检拍照跳变触发 + brain 的 /ocr_feedback, 统一进结果区
+        self.probe.capture_hook = self._on_capture_edge
+        self.probe.ocr_feedback_hook = self._on_ocr_feedback
+        # 跨线程信号槽
+        self.sig_sys.connect(self._sys_log)
+        self.sig_ocr.connect(self._ocr_append)
+        self.sig_mission.connect(self._mission_started)
+        # 探针异常上系统日志 (含初始化阶段留底的)
+        self.probe.on_error = lambda msg: self.sig_sys.emit(msg)
+        if not self.probe.available():
+            self.sig_sys.emit('⚠ 探针初始化失败, 状态灯/任务功能不可用: %s'
+                              % (self.probe._init_error or '未知'))
+            self._status_label.setText('探针初始化失败, 请从终端启动查看报错')
+        for msg in self.probe.init_log:
+            self.sig_sys.emit('探针: %s' % msg)
 
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._refresh_status)
@@ -248,9 +407,12 @@ class MainWindow(QMainWindow):
     # ---------- UI ----------
 
     def _build_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QHBoxLayout(central)
+        self._pages = QTabWidget()
+        self.setCentralWidget(self._pages)
+
+        page1 = QWidget()
+        root = QHBoxLayout(page1)
+        self._pages.addTab(page1, '启动管理')
 
         left = QVBoxLayout()
         left.setSpacing(6)
@@ -278,6 +440,7 @@ class MainWindow(QMainWindow):
         gv = QVBoxLayout(groups_box)
         for key, title in [('nav', '定位 + Nav'), ('arm', '机械臂抓取'),
                            ('brain', '语音调度'), ('aiui', '语音前端'),
+                           ('camera', '海康相机'), ('ocr', 'OCR识别'),
                            ('rviz', 'RViz'), ('mapping', '建图 (FAST_LIO2)')]:
             row = self._make_group_row(key, title, gv)
             self._rows[key] = row
@@ -322,6 +485,10 @@ class MainWindow(QMainWindow):
         self._logs = {}
         self._add_log_tab('system', '系统')
 
+        # 第二页: 任务点位
+        self._mission = self._build_mission_page()
+        self._pages.addTab(self._mission['widget'], '任务点位')
+
     def _make_group_row(self, key, title, parent_layout):
         w = QWidget()
         h = QHBoxLayout(w)
@@ -360,6 +527,448 @@ class MainWindow(QMainWindow):
         self._logs['system'].appendPlainText('[%s] %s'
                                              % (time.strftime('%H:%M:%S'), text))
 
+    # ---------- 任务点位页 ----------
+
+    def _build_mission_page(self):
+        w = QWidget()
+        root = QHBoxLayout(w)
+
+        # 左列: 工具条 + 点位列表
+        left = QVBoxLayout()
+        btns = QHBoxLayout()
+        for text, fn in [('录当前点', self._wp_record),
+                         ('删除', self._wp_delete),
+                         ('清空', self._wp_clear),
+                         ('加载', self._wp_load),
+                         ('保存', self._wp_save)]:
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            btns.addWidget(b)
+        left.addLayout(btns)
+        self._wp_list = QListWidget()
+        self._wp_list.currentRowChanged.connect(self._wp_select)
+        left.addWidget(self._wp_list, 1)
+        root.addLayout(left, 3)
+
+        # 右列: 编辑表单 + 任务控制
+        right = QVBoxLayout()
+        form_box = QGroupBox('选中点编辑 (名称供语音按名导航)')
+        form = QFormLayout(form_box)
+        self._wp_name = QLineEdit()
+        self._wp_ptz = QSpinBox()
+        self._wp_ptz.setRange(0, 256)
+        self._wp_ptz.setToolTip('海康预置位号, 0 = 不动云台')
+        self._wp_capture = QCheckBox('到达后拍照')
+        self._wp_action = QComboBox()
+        # (显示名, extra_action 值); 与 executor 注册的动作一致
+        for label, val in [('无', ''), ('抓取 (grasp)', 'grasp'),
+                           ('放置 (place)', 'place'),
+                           ('收臂 (home2)', 'home2'),
+                           ('预备 (ready)', 'ready')]:
+            self._wp_action.addItem(label, val)
+        form.addRow('名称:', self._wp_name)
+        form.addRow('预置位:', self._wp_ptz)
+        form.addRow('拍照:', self._wp_capture)
+        form.addRow('动作:', self._wp_action)
+        right.addWidget(form_box)
+        btn_apply = QPushButton('应用到选中点')
+        btn_apply.clicked.connect(self._wp_apply)
+        right.addWidget(btn_apply)
+
+        self._wp_file_label = QLabel('文件: %s' % DEFAULT_WP_FILE)
+        self._wp_file_label.setWordWrap(True)
+        right.addWidget(self._wp_file_label)
+
+        # 依赖服务: 任务调度 / 海康相机 (与"定位+Nav"组互斥, 那边会拉起同款)
+        dep_box = QGroupBox('依赖服务 (与"定位+Nav"组互斥)')
+        dv = QVBoxLayout(dep_box)
+        self._deps = {}
+        for key, (title, cmd) in DEP_CMDS.items():
+            row = QHBoxLayout()
+            name = QLabel(title)
+            status = QLabel('离线')
+            status.setFixedWidth(40)
+            btn = QPushButton('启动')
+            btn.setFixedWidth(56)
+            btn.clicked.connect(lambda _c=False, k=key: self._toggle_dep(k))
+            btn_log = QPushButton('日志')
+            btn_log.setFixedWidth(48)
+            row.addWidget(name, 1)
+            row.addWidget(status)
+            row.addWidget(btn)
+            row.addWidget(btn_log)
+            dv.addLayout(row)
+            self._deps[key] = {'status': status, 'btn': btn,
+                               'btn_log': btn_log, 'title': title}
+        right.addWidget(dep_box)
+
+        task_box = QGroupBox('任务')
+        tv = QVBoxLayout(task_box)
+        mrow = QHBoxLayout()
+        self._btn_mission_start = QPushButton('开始任务')
+        self._btn_mission_start.setStyleSheet('font-weight: bold;')
+        self._btn_mission_start.clicked.connect(self._mission_start)
+        btn_cancel = QPushButton('取消任务')
+        btn_cancel.clicked.connect(self._mission_cancel)
+        mrow.addWidget(self._btn_mission_start)
+        mrow.addWidget(btn_cancel)
+        self._chk_loop = QCheckBox('循环执行')
+        self._chk_loop.setToolTip('勾选后: 每轮点位走完自动重发; 取消或失败自动停止')
+        mrow.addWidget(self._chk_loop)
+        tv.addLayout(mrow)
+        mission_status = QLabel('状态: 未收到')
+        mission_status.setWordWrap(True)
+        tv.addWidget(mission_status)
+        right.addWidget(task_box)
+
+        # OCR 识别结果 (传统路径的 CAPTURING 触发 + 语音路径的 /ocr_feedback)
+        ocr_box = QGroupBox('OCR 识别结果')
+        ov = QVBoxLayout(ocr_box)
+        ocr_text = QPlainTextEdit()
+        ocr_text.setReadOnly(True)
+        ocr_text.document().setMaximumBlockCount(200)
+        ov.addWidget(ocr_text)
+        right.addWidget(ocr_box, 1)
+        right.addStretch(1)
+        root.addLayout(right, 4)
+
+        self._wps = []
+        self._wp_file = DEFAULT_WP_FILE
+        self._wp_load_file(DEFAULT_WP_FILE, quiet=True)
+        return {'widget': w, 'status': mission_status,
+                'btn_start': self._btn_mission_start, 'ocr': ocr_text}
+
+    # 点位动作的中文标签 (列表回显用)
+    ACTION_LABELS = {'grasp': '抓取', 'place': '放置',
+                     'home2': '收臂', 'ready': '预备'}
+
+    def _wp_refresh_list(self):
+        self._wp_list.blockSignals(True)
+        self._wp_list.clear()
+        for i, wp in enumerate(self._wps):
+            p = wp['pose']
+            name = wp.get('name') or '(未命名)'
+            tags = []
+            if wp.get('capture'):
+                tags.append('拍照')
+            act = wp.get('action') or ''
+            if act:
+                tags.append(self.ACTION_LABELS.get(act, act))
+            if int(wp.get('ptz_preset', 0) or 0) > 0:
+                tags.append('预置位%d' % int(wp['ptz_preset']))
+            suffix = ' [%s]' % '+'.join(tags) if tags else ''
+            self._wp_list.addItem('%d. %s  (%.2f, %.2f)%s'
+                                  % (i + 1, name,
+                                     float(p.get('x', 0.0)),
+                                     float(p.get('y', 0.0)),
+                                     suffix))
+        self._wp_list.blockSignals(False)
+
+    def _wp_record(self):
+        pose = self.probe.lookup_pose()
+        if pose is None:
+            self._sys_log('录点失败: TF map→base_link 不可用(定位在运行吗?)')
+            return
+        wp = {'name': '点位%d' % (len(self._wps) + 1), 'pose': pose,
+              'ptz_preset': 0, 'capture': True, 'action': ''}
+        self._wps.append(wp)
+        self._wp_refresh_list()
+        self._wp_list.setCurrentRow(len(self._wps) - 1)
+        self._sys_log('已录制点位: %s (%.2f, %.2f)'
+                      % (wp['name'], pose['x'], pose['y']))
+
+    def _wp_delete(self):
+        row = self._wp_list.currentRow()
+        if 0 <= row < len(self._wps):
+            del self._wps[row]
+            self._wp_refresh_list()
+
+    def _wp_clear(self):
+        self._wps = []
+        self._wp_refresh_list()
+
+    def _wp_select(self, row):
+        if not (0 <= row < len(self._wps)):
+            return
+        wp = self._wps[row]
+        self._wp_name.setText(wp.get('name', ''))
+        self._wp_ptz.setValue(int(wp.get('ptz_preset', 0)))
+        self._wp_capture.setChecked(bool(wp.get('capture', False)))
+        action = wp.get('action', '') or ''
+        idx = self._wp_action.findData(action)
+        self._wp_action.setCurrentIndex(idx if idx >= 0 else 0)
+
+    def _wp_apply(self):
+        row = self._wp_list.currentRow()
+        if not (0 <= row < len(self._wps)):
+            self._sys_log('请先选中一个点位')
+            return
+        wp = self._wps[row]
+        wp['name'] = self._wp_name.text().strip()
+        wp['ptz_preset'] = self._wp_ptz.value()
+        wp['capture'] = self._wp_capture.isChecked()
+        wp['action'] = self._wp_action.currentData() or ''
+        self._wp_refresh_list()
+        self._wp_list.setCurrentRow(row)
+        self._sys_log('已应用修改: %s' % (wp['name'] or '点位%d' % (row + 1)))
+
+    def _wp_load_file(self, path, quiet=False):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+            wps = []
+            for item in (data or {}).get('waypoints', []):
+                wps.append({
+                    'name': str(item.get('name', '') or ''),
+                    'pose': dict(item.get('pose', {}) or {}),
+                    'ptz_preset': int(item.get('ptz_preset', 0) or 0),
+                    'capture': bool(item.get('capture', False)),
+                    'action': str(item.get('action', '') or ''),
+                })
+            self._wps = wps
+            self._wp_file = path
+            self._wp_file_label.setText('文件: %s' % path)
+            self._wp_refresh_list()
+            if not quiet:
+                self._sys_log('已加载 %d 个点位: %s' % (len(wps), path))
+        except Exception as exc:
+            if not quiet:
+                QMessageBox.warning(self, '加载失败', '%s\n%s' % (path, exc))
+
+    def _wp_load(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, '加载点位YAML', KYBOT_WS + '/location',
+            'YAML (*.yaml *.yml)')
+        if path:
+            self._wp_load_file(path)
+
+    def _wp_save(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, '保存点位YAML', self._wp_file, 'YAML (*.yaml)')
+        if not path:
+            return
+        if not (path.endswith('.yaml') or path.endswith('.yml')):
+            path += '.yaml'
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                yaml.safe_dump({'waypoints': self._wps}, f,
+                               allow_unicode=True, default_flow_style=False)
+            self._wp_file = path
+            self._wp_file_label.setText('文件: %s' % path)
+            self._sys_log('已保存 %d 个点位: %s (语音调度即时生效)'
+                          % (len(self._wps), path))
+        except Exception as exc:
+            QMessageBox.warning(self, '保存失败', str(exc))
+
+    def _to_mission_waypoint(self, wp):
+        from hk_camera.msg import MissionWaypoint
+        mw = MissionWaypoint()
+        mw.nav_pose.header.frame_id = 'map'
+        mw.nav_pose.header.stamp = self.probe.node.get_clock().now().to_msg()
+        p = wp['pose']
+        mw.nav_pose.pose.position.x = float(p.get('x', 0.0))
+        mw.nav_pose.pose.position.y = float(p.get('y', 0.0))
+        mw.nav_pose.pose.position.z = float(p.get('z', 0.0))
+        mw.nav_pose.pose.orientation.x = float(p.get('qx', 0.0))
+        mw.nav_pose.pose.orientation.y = float(p.get('qy', 0.0))
+        mw.nav_pose.pose.orientation.z = float(p.get('qz', 0.0))
+        mw.nav_pose.pose.orientation.w = float(p.get('qw', 1.0))
+        mw.pan = float(wp.get('ptz_preset', 0))  # 预置位号, 同面板约定
+        mw.tilt = 0.0
+        mw.zoom = 0.0
+        mw.do_capture = bool(wp.get('capture', False))
+        mw.extra_action = wp.get('action', '') or ''
+        return mw
+
+    def _mission_start(self):
+        if not self._wps:
+            self._sys_log('没有点位, 无法开始任务')
+            return
+        if not self.probe.run_cli.wait_for_service(timeout_sec=2.0):
+            self._sys_log('/mission/run 服务无应答(mission_executor 在运行吗?)')
+            return
+        from hk_camera.srv import RunMission
+        req = RunMission.Request()
+        for wp in self._wps:
+            req.waypoints.append(self._to_mission_waypoint(wp))
+        self._sys_log('下发任务: %d 个点位...' % len(req.waypoints))
+        fut = self.probe.run_cli.call_async(req)
+        fut.add_done_callback(lambda f: self.sig_mission.emit(f))
+
+    def _mission_started(self, future):
+        try:
+            res = future.result()
+            self._mission_from_here = bool(res.accepted)
+            self._sys_log('任务受理: accepted=%s %s' % (res.accepted, res.message))
+        except Exception as exc:
+            self._sys_log('任务下发异常: %s' % exc)
+
+    def _mission_cancel(self):
+        self._mission_from_here = False  # 取消即退出循环
+        if not self.probe.cancel_cli.wait_for_service(timeout_sec=2.0):
+            self._sys_log('/mission/cancel 服务无应答')
+            return
+        from std_srvs.srv import Trigger
+        self._sys_log('请求取消任务...')
+        self.probe.cancel_cli.call_async(Trigger.Request())
+
+    def _loop_resend(self):
+        """循环模式: 一轮走完后自动重发当前点位表."""
+        if self._mission_from_here and self._chk_loop.isChecked():
+            self._sys_log('循环模式: 自动重发任务')
+            self._mission_start()
+
+    # ---------- OCR 识别结果 (任务页显示) ----------
+
+    def _ocr_append(self, text):
+        self._mission['ocr'].appendPlainText(
+            '[%s] %s' % (time.strftime('%H:%M:%S'), text))
+
+    def _on_ocr_feedback(self, text):
+        # 可能在 spin 线程被调, 经信号槽转交 GUI 线程
+        self.sig_ocr.emit(text)
+
+    def _on_capture_edge(self):
+        """/mission/status 出现 CAPTURING: 巡检流程拍照了, 后台调 OCR.
+        3s 去抖: 防止状态周期重发造成同一帧重复识别."""
+        now = time.monotonic()
+        if now - self._last_ocr_trigger < 3.0:
+            return
+        self._last_ocr_trigger = now
+        threading.Thread(target=self._ocr_on_capture, daemon=True).start()
+
+    def _ocr_on_capture(self):
+        if self._ocr_inflight:
+            return  # 上一次识别还在跑, 不并发 (ocr_node 单线程处理)
+        self._ocr_inflight = True
+        try:
+            time.sleep(1.2)  # 等拍照动作完成、画面稳定
+            try:
+                if not self.probe.ocr_cli.service_is_ready():
+                    self._on_ocr_feedback('[巡检拍照] OCR服务未运行')
+                    return
+                from ocr_interfaces.srv import RecognizeText
+                req = RecognizeText.Request()
+                req.conf_threshold = 0.0
+                fut = self.probe.ocr_cli.call_async(req)
+                fut.add_done_callback(self._ocr_done)
+            except Exception:
+                pass
+        finally:
+            self._ocr_inflight = False
+
+    def _ocr_done(self, future):
+        try:
+            res = future.result()
+            if not res.success:
+                text = 'OCR失败: %s' % res.message
+            elif not res.detections:
+                text = '未识别到文字'
+            else:
+                items = ['%s(%.2f)' % (d.text, d.confidence)
+                         for d in res.detections[:5]]
+                text = '识别到 %d 处: %s' % (len(res.detections),
+                                             '、'.join(items))
+        except Exception as exc:
+            text = 'OCR调用异常: %s' % exc
+        self._on_ocr_feedback('[巡检拍照] ' + text)
+
+    # ---------- 依赖服务 (任务调度 / 海康相机) ----------
+
+    def _toggle_dep(self, key):
+        proc = self._procs.get(key)
+        if proc is not None and proc.running():
+            proc.stop()
+            self._sys_log('停止: %s' % self._deps[key]['title'])
+        else:
+            if key == 'dep_ocr' and self.probe.has_node('ocr_node'):
+                self._sys_log('ocr_node 已在运行(可能由启动页启动), 不重复启动')
+                return
+            if self._group_running('nav'):
+                self._sys_log('"定位+Nav"组在运行, 其中已含%s, 不重复启动'
+                              % self._deps[key]['title'])
+                return
+            _title, cmd = DEP_CMDS[key]
+            self._start_proc(key, self._deps[key]['title'], cmd)
+            self._sys_log('启动: %s' % self._deps[key]['title'])
+            if key == 'dep_camera':
+                self._camera_post_start()
+            if key == 'dep_ocr':
+                self._ocr_post_start()
+
+    # ---------- OCR 启动后链: 预热首次推理 (GPU 冷启动可达 20~40s) ----------
+
+    def _ocr_post_start(self):
+        threading.Thread(target=self._ocr_post_start_run, daemon=True).start()
+
+    def _ocr_post_start_run(self):
+        for _ in range(120):  # 等 OCR 服务就绪 (最多 60s)
+            try:
+                if self.probe.ocr_cli.service_is_ready():
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
+        else:
+            self.sig_sys.emit('OCR 服务未就绪, 预热跳过')
+            return
+        self.sig_sys.emit('OCR 预热中(首次推理较慢, 约 20~40s)...')
+        from ocr_interfaces.srv import RecognizeText
+        req = RecognizeText.Request()
+        req.conf_threshold = 0.0
+        try:
+            fut = self.probe.ocr_cli.call_async(req)
+            t0 = time.monotonic()
+            while not fut.done():
+                if time.monotonic() - t0 > 90.0:
+                    self.sig_sys.emit('OCR 预热超时')
+                    return
+                time.sleep(0.2)
+            self.sig_sys.emit('OCR 预热完成, 可以识别')
+        except Exception as exc:
+            self.sig_sys.emit('OCR 预热异常: %s' % exc)
+
+    # ---------- 相机启动后链: 登录 + 开流 (OCR/图像流前提) ----------
+
+    def _camera_post_start(self):
+        """相机节点起来后自动调 login + start_stream, 否则无图像流、OCR 无帧."""
+        threading.Thread(target=self._camera_post_start_run, daemon=True).start()
+
+    def _camera_post_start_run(self):
+        from std_srvs.srv import Trigger
+        # 等相机服务就绪 (最多 60s, nav 组里相机要 21s 才拉起)
+        for _ in range(120):
+            try:
+                if self.probe.login_cli.service_is_ready():
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
+        else:
+            self.sig_sys.emit('相机服务未就绪, 登录/开流跳过')
+            return
+        ok_login = self._call_trigger_blocking(self.probe.login_cli, '登录')
+        ok_stream = self._call_trigger_blocking(self.probe.stream_cli, '开流')
+        if ok_login and ok_stream:
+            self.sig_sys.emit('相机: 登录+开流完成, 图像流已开启')
+
+    def _call_trigger_blocking(self, client, what, timeout=15.0):
+        from std_srvs.srv import Trigger
+        try:
+            fut = client.call_async(Trigger.Request())
+            t0 = time.monotonic()
+            while not fut.done():
+                if time.monotonic() - t0 > timeout:
+                    self.sig_sys.emit('相机%s: 超时' % what)
+                    return False
+                time.sleep(0.1)
+            res = fut.result()
+            self.sig_sys.emit('相机%s: %s' % (what, res.message))
+            return res.success
+        except Exception as exc:
+            self.sig_sys.emit('相机%s异常: %s' % (what, exc))
+            return False
+
     # ---------- 模式 ----------
 
     def _apply_mode(self, mode, force=False):
@@ -393,6 +1002,16 @@ class MainWindow(QMainWindow):
             self._start_group(key)
 
     def _start_group(self, key):
+        if key == 'camera':
+            if self._group_running('nav'):
+                self._sys_log('"定位+Nav"组在运行, 其中已含海康相机, 不重复启动')
+                return
+            if self.probe.has_node('hk_camera_node'):
+                self._sys_log('海康相机已在运行, 不重复启动')
+                return
+        if key == 'ocr' and self.probe.has_node('ocr_node'):
+            self._sys_log('ocr_node 已在运行(可能由任务页启动), 不重复启动')
+            return
         if key == 'mapping':
             busy = [k for k in MUTEX_WITH_MAPPING if self._group_running(k)]
             if busy:
@@ -404,6 +1023,19 @@ class MainWindow(QMainWindow):
                     return
                 for k in busy:
                     self._stop_group(k)
+        if key == 'nav':
+            # nav 组内含 mission_executor 和 hk_camera, 先停任务页的单独依赖
+            for dk, (dtitle, _cmd) in DEP_CMDS.items():
+                p = self._procs.get(dk)
+                if p is not None and p.running():
+                    self._sys_log('%s 已单独运行, 先停止(改由"定位+Nav"组统一拉起)'
+                                  % dtitle)
+                    p.stop()
+            # 启动页单独起的相机也要停
+            pc = self._procs.get('camera')
+            if pc is not None and pc.running():
+                self._sys_log('海康相机已单独运行, 先停止(改由"定位+Nav"组统一拉起)')
+                pc.stop()
         # 先清掉手动脚本/上次残留的同名进程, 防重复节点
         for pattern in self.SWEEP_PATTERNS.get(key, []):
             self._do_sweep(pattern)
@@ -417,6 +1049,11 @@ class MainWindow(QMainWindow):
                 delay = MODES[self._mode]['arm_grasp_delay_s']
             self._start_proc(pkey, title, cmd, delay_s=delay)
         self._sys_log('启动组: %s' % self._rows[key]['title'])
+        if key in ('camera', 'nav'):
+            # nav 组内含相机但没人开流, 同样补上 登录+开流
+            self._camera_post_start()
+        if key == 'ocr':
+            self._ocr_post_start()
 
     def _group_cmds(self, key):
         mode = MODES[self._mode]
@@ -435,8 +1072,12 @@ class MainWindow(QMainWindow):
         if pkey not in self._logs:
             tab = self._add_log_tab(pkey, title)
             row_key = pkey.split('_')[0]
-            self._rows[row_key]['btn_log'].clicked.connect(
-                lambda: self._tabs.setCurrentWidget(tab))
+            if row_key in self._rows:
+                self._rows[row_key]['btn_log'].clicked.connect(
+                    lambda: self._tabs.setCurrentWidget(tab))
+            elif pkey in self._deps:
+                self._deps[pkey]['btn_log'].clicked.connect(
+                    lambda: self._tabs.setCurrentWidget(tab))
         log = self._logs[pkey]
         if pkey in self._procs:
             self._procs[pkey].qp.deleteLater()
@@ -625,6 +1266,9 @@ class MainWindow(QMainWindow):
             'arm': lambda: self.probe.has_service('/yolo_grasp/grasp_hold'),
             'brain': lambda: self.probe.has_node('brain_node'),
             'aiui': lambda: self.probe.has_node('aiui_ros_node'),
+            'camera': lambda: self.probe.has_node('hk_camera_node'),
+            'ocr': lambda: self.probe.has_service('/ocr/recognize')
+            or self.probe.has_node('ocr_node'),
             'rviz': lambda: self.probe.has_node('rviz'),
             'mapping': lambda: self.probe.has_service('/map_save'),
         }
@@ -643,6 +1287,45 @@ class MainWindow(QMainWindow):
                 except Exception:
                     state = 'off'
             self._set_led(self._rows[key]['led'], state)
+
+        # 任务点位页: 状态文本 + 开始按钮可用性
+        s = self.probe.mission_status
+        if s is None:
+            txt = '状态: 未收到(mission_executor 未运行?)'
+        else:
+            txt = '状态: %s %d/%d %s' % (
+                MISSION_STATE_NAMES.get(s.state, str(s.state)),
+                s.current_index + 1, s.total_count, s.message)
+        self._mission['status'].setText(txt)
+        online = (self.probe.has_publisher('/mission/status')
+                  or self.probe.has_node('mission_executor'))
+        busy = s is not None and s.state not in MISSION_FREE_STATES
+        self._mission['btn_start'].setEnabled(online and not busy)
+
+        # 循环重发: 一轮 COMPLETED 边沿 → 5s 后自动重发; 失败/取消退出循环
+        prev_state = self._prev_ms_state
+        self._prev_ms_state = s.state if s is not None else None
+        if s is not None and prev_state != s.state and self._mission_from_here:
+            if s.state == 4 and self._chk_loop.isChecked():  # COMPLETED
+                self._sys_log('一轮任务完成, 循环模式: 5s 后自动重发')
+                QTimer.singleShot(5000, self._loop_resend)
+            elif s.state == 5:  # FAILED
+                self._mission_from_here = False
+                self._sys_log('任务失败, 循环停止')
+            elif s.state == 6:  # CANCELED
+                self._mission_from_here = False
+
+        # 任务页依赖服务行: 状态 + 按钮
+        nav_on = self._group_running('nav')
+        for key, dep in self._deps.items():
+            proc = self._procs.get(key)
+            running = proc is not None and proc.running()
+            online = any(self.probe.has_node(n)
+                         for n in DEP_NODE_CHECKS.get(key, ()))
+            dep['status'].setText(
+                '在线' if online else ('启动中' if running else '离线'))
+            dep['btn'].setText('停止' if running else '启动')
+            dep['btn'].setEnabled(running or not nav_on)
 
     # ---------- 关闭 ----------
 

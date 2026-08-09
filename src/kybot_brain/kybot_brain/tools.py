@@ -13,6 +13,8 @@ import time
 from geometry_msgs.msg import Twist
 from hk_camera.msg import MissionStatus, MissionWaypoint
 from hk_camera.srv import CapturePicture, RunMission
+from ocr_interfaces.srv import RecognizeText
+from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 from .waypoints import find_waypoint, load_waypoints
@@ -254,6 +256,9 @@ class ToolExecutor:
         self._arm_home_cli = node.create_client(Trigger, '/yolo_grasp/home2')
         self._arm_ready_cli = node.create_client(Trigger, '/yolo_grasp/ready')
         self._arm_open_cli = node.create_client(Trigger, '/yolo_grasp/open')
+        # OCR 识别 (拍照后顺手识别), 结果发 /ocr_feedback 供 UI 显示
+        self._ocr_cli = node.create_client(RecognizeText, '/ocr/recognize')
+        self._ocr_pub = node.create_publisher(String, '/ocr_feedback', 10)
         # 抓取硬门: 必须有一次成功的 approach 才允许 grasp; 新导航后复位
         self._approach_ok = False
         self._last_approach_dist = 0.0  # 上次逼近前进的距离, grasp 后原路退回用
@@ -351,8 +356,34 @@ class ToolExecutor:
         res = self._call(self._capture_cli, req, '/hk_camera/capture')
         if res is None:
             return '调用 /hk_camera/capture 失败: 服务无应答(hk_camera 在运行吗?)'
-        return ('拍照成功: %s' % res.message if res.success
-                else '拍照失败: %s' % res.message)
+        if not res.success:
+            return '拍照失败: %s' % res.message
+        return '拍照成功: %s%s' % (res.message, self._ocr_feedback())
+
+    def _ocr_feedback(self):
+        """拍照后调一次 OCR 识别当前画面, 结果发 /ocr_feedback 并返回描述."""
+        req = RecognizeText.Request()
+        req.conf_threshold = 0.0  # 用节点默认阈值
+        # 40s: 容忍 OCR 首次推理的 GPU 冷启动(模型加载)和并发排队
+        res = self._call(self._ocr_cli, req, '/ocr/recognize', timeout=40.0)
+        if res is None:
+            return ('；OCR这次没识别成功(服务未启动或响应超时, '
+                    '照片已保存, 可稍后重试)')
+        if not res.success:
+            return '；OCR失败: %s' % res.message
+        if not res.detections:
+            text = '未识别到文字'
+            detail = text
+        else:
+            items = ['%s(%.2f)' % (d.text, d.confidence)
+                     for d in res.detections[:5]]
+            text = '识别到 %d 处文字: %s' % (len(res.detections),
+                                           '、'.join(items))
+            detail = text
+        msg = String()
+        msg.data = '[语音拍照] %s' % detail
+        self._ocr_pub.publish(msg)
+        return '；OCR: %s' % text
 
     # ---------- 分步同步工具 (返回真实执行结果) ----------
 

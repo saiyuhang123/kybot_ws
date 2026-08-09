@@ -20,6 +20,8 @@ from std_srvs.srv import Trigger
 from hk_camera.msg import MissionStatus
 from hk_camera.srv import CapturePicture, RunMission
 from nav_msgs.msg import Odometry
+from ocr_interfaces.msg import OcrDetection
+from ocr_interfaces.srv import RecognizeText
 from sensor_msgs.msg import LaserScan
 
 
@@ -35,6 +37,7 @@ class FakeExecutor(Node):
         self.create_service(Trigger, '/mission/cancel', self._on_cancel)
         self.create_service(Trigger, '/yolo_grasp/grasp_hold', self._on_grasp)
         self.create_service(CapturePicture, '/hk_camera/capture', self._on_capture)
+        self.create_service(RecognizeText, '/ocr/recognize', self._on_ocr)
         # 周期广播当前状态, 模拟真实 executor
         self.create_timer(0.5, self._pub_status)
         self.create_timer(0.1, self._pub_sensors)
@@ -95,6 +98,15 @@ class FakeExecutor(Node):
     def _on_capture(self, req, res):
         res.success = True
         res.message = 'fake 拍照成功'
+        return res
+
+    def _on_ocr(self, req, res):
+        res.success = True
+        res.message = 'ok'
+        d1 = OcrDetection(); d1.text = '压力表'; d1.confidence = 0.95
+        d2 = OcrDetection(); d2.text = '23.5'; d2.confidence = 0.88
+        res.detections = [d1, d2]
+        res.processing_time_ms = 120.0
         return res
 
 
