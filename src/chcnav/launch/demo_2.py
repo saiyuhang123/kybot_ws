@@ -21,7 +21,7 @@ def generate_launch_description():
             #ip 地址
             {"host": "192.168.1.164"},
             #端口号
-            {"port": 7532},
+            {"port": 9904},
          ]
       ),
    ])

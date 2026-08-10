@@ -13,7 +13,7 @@
 
 /global_map_publisher:
     ros__parameters:
-        map_file_path: "/home/nvidia/Documents/PCD/test01.pcd"
+        map_file_path: "/home/nvidia/kybot_ws/src/PCD/mapPoints.pcd"
         interval: 5 # publish interval in seconds
 
 /**:
