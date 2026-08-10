@@ -367,7 +367,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('KYBOT 启动面板')
-        self.resize(1020, 660)
+        self.resize(1040, 660)
         self._procs = {}          # key -> Proc
         self._mode = 'twofinger'  # 默认二指
         self._seq_steps = []      # 一键启动的待执行步骤
@@ -461,11 +461,13 @@ class MainWindow(QMainWindow):
         left.addWidget(self._chk_rviz)
 
         self._btn_all = QPushButton('一键全部启动')
-        self._btn_all.setStyleSheet('font-weight: bold; padding: 8px;')
+        self._btn_all.setObjectName('primary')
+        self._btn_all.setMinimumHeight(38)
         self._btn_all.clicked.connect(self._start_all)
         left.addWidget(self._btn_all)
 
         self._btn_stop_all = QPushButton('全部停止')
+        self._btn_stop_all.setObjectName('danger')
         self._btn_stop_all.clicked.connect(self._stop_all)
         left.addWidget(self._btn_stop_all)
 
@@ -476,7 +478,7 @@ class MainWindow(QMainWindow):
 
         left_widget = QWidget()
         left_widget.setLayout(left)
-        left_widget.setFixedWidth(330)
+        left_widget.setFixedWidth(358)
         root.addWidget(left_widget)
 
         # 右侧日志 tab
@@ -606,7 +608,7 @@ class MainWindow(QMainWindow):
         tv = QVBoxLayout(task_box)
         mrow = QHBoxLayout()
         self._btn_mission_start = QPushButton('开始任务')
-        self._btn_mission_start.setStyleSheet('font-weight: bold;')
+        self._btn_mission_start.setObjectName('primary')
         self._btn_mission_start.clicked.connect(self._mission_start)
         btn_cancel = QPushButton('取消任务')
         btn_cancel.clicked.connect(self._mission_cancel)
@@ -1261,14 +1263,13 @@ class MainWindow(QMainWindow):
     def _refresh_status(self):
         self._refresh_buttons()
         checks = {
-            'nav': lambda: self.probe.has_publisher('/mission/status')
-            or self.probe.has_node('mission_executor'),
-            'arm': lambda: self.probe.has_service('/yolo_grasp/grasp_hold'),
+            # 一律用节点名判活: 服务/话题注册在进程被杀后会残留, 节点名清得快
+            'nav': lambda: self.probe.has_node('mission_executor'),
+            'arm': lambda: self.probe.has_node('robot_cartesian_control'),
             'brain': lambda: self.probe.has_node('brain_node'),
             'aiui': lambda: self.probe.has_node('aiui_ros_node'),
             'camera': lambda: self.probe.has_node('hk_camera_node'),
-            'ocr': lambda: self.probe.has_service('/ocr/recognize')
-            or self.probe.has_node('ocr_node'),
+            'ocr': lambda: self.probe.has_node('ocr_node'),
             'rviz': lambda: self.probe.has_node('rviz'),
             'mapping': lambda: self.probe.has_service('/map_save'),
         }
@@ -1297,8 +1298,7 @@ class MainWindow(QMainWindow):
                 MISSION_STATE_NAMES.get(s.state, str(s.state)),
                 s.current_index + 1, s.total_count, s.message)
         self._mission['status'].setText(txt)
-        online = (self.probe.has_publisher('/mission/status')
-                  or self.probe.has_node('mission_executor'))
+        online = self.probe.has_node('mission_executor')
         busy = s is not None and s.state not in MISSION_FREE_STATES
         self._mission['btn_start'].setEnabled(online and not busy)
 
@@ -1343,8 +1343,150 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+# ---------- 深色科技风主题 (机械绿强调色) ----------
+THEME_QSS = """
+* { font-size: 13px; }
+QMainWindow, QWidget {
+    background: #1b1e24;
+    color: #d7dde4;
+}
+QGroupBox {
+    background: #22262d;
+    border: 1px solid #333a43;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding-top: 8px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 6px;
+    color: #8fd19a;
+    font-weight: bold;
+}
+QPushButton {
+    background: #2b3038;
+    border: 1px solid #3c434d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-height: 22px;
+    color: #d7dde4;
+}
+QPushButton:hover { background: #343b45; border-color: #4a525d; }
+QPushButton:pressed { background: #242932; }
+QPushButton:disabled {
+    background: #23262c;
+    color: #5d656e;
+    border-color: #2d3238;
+}
+QPushButton#primary {
+    background: #2eb85c;
+    border: none;
+    color: #ffffff;
+    font-weight: bold;
+}
+QPushButton#primary:hover { background: #35cb68; }
+QPushButton#primary:pressed { background: #27a050; }
+QPushButton#primary:disabled { background: #24563a; color: #8fa598; }
+QPushButton#danger {
+    background: #3a2626;
+    border: 1px solid #a04545;
+    color: #e8a0a0;
+}
+QPushButton#danger:hover { background: #472e2e; border-color: #c05555; }
+QTabWidget::pane {
+    border: 1px solid #333a43;
+    border-radius: 6px;
+    top: -1px;
+}
+QTabBar::tab {
+    background: #22262d;
+    border: 1px solid #333a43;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 7px 14px;
+    margin-right: 2px;
+    color: #9aa4af;
+}
+QTabBar::tab:selected {
+    background: #1b1e24;
+    color: #2eb85c;
+    border-bottom: 2px solid #2eb85c;
+    font-weight: bold;
+}
+QTabBar::tab:hover:!selected { color: #d7dde4; }
+QPlainTextEdit, QListWidget {
+    background: #14171b;
+    border: 1px solid #2d333b;
+    border-radius: 6px;
+    color: #c9d2da;
+    font-family: "DejaVu Sans Mono", "Monospace", monospace;
+    font-size: 12px;
+}
+QListWidget::item { padding: 4px 6px; border-radius: 4px; }
+QListWidget::item:selected { background: #24563a; color: #d8f0de; }
+QListWidget::item:hover:!selected { background: #22262d; }
+QLineEdit, QSpinBox, QComboBox {
+    background: #14171b;
+    border: 1px solid #2d333b;
+    border-radius: 5px;
+    padding: 4px 8px;
+    color: #d7dde4;
+    min-height: 20px;
+}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus { border-color: #2eb85c; }
+QComboBox::drop-down { border: none; width: 22px; }
+QComboBox QAbstractItemView {
+    background: #22262d;
+    border: 1px solid #3c434d;
+    selection-background-color: #2eb85c;
+    selection-color: #ffffff;
+    color: #d7dde4;
+}
+QCheckBox, QRadioButton { color: #d7dde4; spacing: 6px; }
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 15px; height: 15px;
+    border: 1px solid #3c434d;
+    background: #14171b;
+}
+QCheckBox::indicator { border-radius: 3px; }
+QCheckBox::indicator:checked {
+    background: #2eb85c; border-color: #2eb85c;
+    image: none;
+}
+QRadioButton::indicator { border-radius: 8px; }
+QRadioButton::indicator:checked {
+    background: #2eb85c; border-color: #2eb85c;
+}
+QScrollBar:vertical {
+    background: #1b1e24; width: 10px; margin: 2px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    background: #3c434d; min-height: 24px; border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover { background: #4a525d; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar:horizontal {
+    background: #1b1e24; height: 10px; margin: 2px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal {
+    background: #3c434d; min-width: 24px; border-radius: 5px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QToolTip {
+    background: #2b3038; color: #d7dde4;
+    border: 1px solid #3c434d; padding: 4px 8px;
+}
+"""
+
+
 def main():
     app = QApplication(sys.argv)
+    app.setStyleSheet(THEME_QSS)
     win = MainWindow()
     win.show()
     sys.exit(app.exec_())
