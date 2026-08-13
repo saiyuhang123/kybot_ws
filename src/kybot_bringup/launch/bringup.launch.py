@@ -138,7 +138,7 @@ def generate_launch_description():
             "bash", "-c",
             "source /home/nvidia/kybot_ws/install/setup.bash && "
             "ros2 run wit_ros2_imu wit_ros2_imu "
-            "--ros-args -p port:=/dev/ttyCH341USB0 -p baudrate:=921600; "
+            "--ros-args -p port:=/dev/ttyIMU -p baudrate:=921600; "
             "exec bash"
         ],
         name="imu_terminal",

@@ -1,4 +1,4 @@
-image: mappoints.pgm
+image: 111.pgm
 mode: trinary
 resolution: 0.05
 origin: [-39.8, -20, 0]
