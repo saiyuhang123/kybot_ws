@@ -107,7 +107,7 @@ Static transforms defined in `bringup.launch.py`.
 - **2D LiDAR**: Hins at 192.168.1.88:8080 (TCP)
 - **3D LiDAR**: RoboSense (rslidar_sdk) or Livox MID360
 - **Camera**: Hikvision at 192.168.1.64:8000 (admin/a1234567)
-- **IMU**: WitMotion on /dev/ttyUSB0 (921600 baud)
+- **IMU**: WitMotion on /dev/ttyIMU (udev 按物理 USB 口绑定, 921600 baud)
 - **Wheel base**: 0.6m (configurable in `cfg.yaml`)
 
 ## Nav2

@@ -78,7 +78,7 @@ MODES = {
              'run_grasp_main:=false' % ELITE_WS),
             ('arm_grasp', '抓取服务(二指)',
              ELITE_SETUP + 'cd %s/biaoding && python3 yolo_grasp.py '
-             '--gripper two_finger --target-class bottle --headless' % ELITE_WS),
+             '--gripper two_finger --target-class bottle ' % ELITE_WS),
         ],
         'arm_grasp_delay_s': 10,  # 主 launch 起完再起 headless 抓取服务
     },
@@ -98,7 +98,10 @@ FIXED_CMDS = {
     'brain': ('语音调度', KYBOT_SETUP + 'ros2 launch kybot_brain kybot_brain.launch.py'),
     'aiui': ('语音前端', KYBOT_SETUP + 'ros2 launch robot_aiui robot_aiui.launch.py'),
     'camera': ('海康相机', KYBOT_SETUP + 'ros2 run hk_camera hk_camera_node'),
-    'ocr': ('OCR识别', KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
+    'ocr': ('OCgs '
+     '-p port:=/dev/ttyIMU -p baudrate:=921600' % DOC, 0),
+    ('mapping_lidar', '建图-雷达',
+     SETUP_ENV + 'source %s/rslidar_ros2_wsR识别', KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
     'rviz': ('RViz', KYBOT_SETUP + 'rviz2'),
 }
 
@@ -109,10 +112,7 @@ DOC = '/home/nvidia/Documents'
 MAPPING_CMDS = [
     ('mapping_imu', '建图-IMU',
      SETUP_ENV + 'source %s/wit_ros2_imu_src/install/setup.bash && '
-     'ros2 run wit_ros2_imu wit_ros2_imu --ros-args '
-     '-p port:=/dev/ttyCH341USB0 -p baudrate:=921600' % DOC, 0),
-    ('mapping_lidar', '建图-雷达',
-     SETUP_ENV + 'source %s/rslidar_ros2_ws/install/setup.bash && '
+     'ros2 run wit_ros2_imu wit_ros2_imu --ros-ar/install/setup.bash && '
      'ros2 launch rslidar_sdk start.py' % DOC, 5),
     ('mapping_rs', '建图-点云转换',
      SETUP_ENV + 'source %s/rs_to_velodyne-master/install/setup.bash && '

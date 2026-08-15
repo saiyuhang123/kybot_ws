@@ -286,7 +286,7 @@ def generate_launch_description():
             "source /home/nvidia/kybot_ws/install/setup.bash && "
             "ros2 launch nav2_bringup bringup_launch.py "
             "use_sim_time:=False autostart:=True "
-            "map:=/home/nvidia/kybot_ws/src/PCD/pgm_yaml/mappoints.yaml "
+            "map:=/home/nvidia/kybot_ws/123.yaml "
             "params_file:=/home/nvidia/kybot_ws/src/nav2_params/param_top_akm_bs.yaml; "
             "exec bash"
         ],
