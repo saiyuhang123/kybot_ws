@@ -12,7 +12,7 @@ namespace my_rviz_panel {
 MissionExecutor::MissionExecutor(const std::string& name)
     : Node(name)
 {
-    declare_parameter("front_stop_distance", 0.60);
+    declare_parameter("front_stop_distance", 0.70);
     declare_parameter("scan_timeout", 0.5);
     declare_parameter("odom_timeout", 0.30);
     declare_parameter("front_scan_min_angle", -10.0);

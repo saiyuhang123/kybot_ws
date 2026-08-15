@@ -99,8 +99,8 @@ FIXED_CMDS = {
     'aiui': ('语音前端', KYBOT_SETUP + 'ros2 launch robot_aiui robot_aiui.launch.py'),
     'camera': ('海康相机', KYBOT_SETUP + 'ros2 run hk_camera hk_camera_node'),
     'ocr': ('OCgs '
-     '-p port:=/dev/ttyIMU -p baudrate:=921600' % DOC, 0),
-    ('mapping_lidar', '建图-雷达',
+     '-p port:=/dev/ttyIMU -p baudrate:=921600', 0),
+    'mapping_lidar' : ('建图-雷达',
      SETUP_ENV + 'source %s/rslidar_ros2_wsR识别', KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
     'rviz': ('RViz', KYBOT_SETUP + 'rviz2'),
 }

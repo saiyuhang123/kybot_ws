@@ -117,7 +117,7 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'approach',
-            'description': '底盘慢速直线逼近前方目标(0.1m/s, 前向2D雷达测距, 距障碍约0.6m自动停车, 返回真实前进距离和前方距离)。导航到点位后、抓取前必须调用。',
+            'description': '底盘慢速直线逼近前方目标(0.1m/s, 前向2D雷达测距, 距障碍约0.7m自动停车, 返回真实前进距离和前方距离)。导航到点位后、抓取前必须调用。',
             'parameters': {
                 'type': 'object',
                 'properties': {
@@ -224,7 +224,7 @@ class ToolExecutor:
                  service_timeout_sec=10.0, nav_timeout_sec=300.0,
                  arm_timeout_sec=130.0, interrupt_check=None, set_waiting=None,
                  odom_provider=None, scan_provider=None, cmd_vel_pub=None,
-                 approach_speed=0.1, approach_stop_distance=0.6,
+                 approach_speed=0.1, approach_stop_distance=0.7,
                  approach_max_distance=1.5,
                  audit_file='~/.kybot_brain/audit.jsonl'):
         self._node = node
@@ -412,7 +412,7 @@ class ToolExecutor:
     def _tool_grasp(self):
         if not self._approach_ok:
             return ('拒绝抓取: 还没有成功逼近过目标。抓取前必须先调 approach '
-                    '逼近到目标跟前(约0.6m雷达早停), 这是硬约束, 不要跳过。')
+                    '逼近到目标跟前(约0.7m雷达早停), 这是硬约束, 不要跳过。')
         result = self._call_arm(self._grasp_cli, '/yolo_grasp/grasp_hold', '抓取')
         # 与 executor 的 grasp 动作一致: 抓完(无论成败)原路退回导航点,
         # 避免贴着障碍时 Nav2 规划扭来扭去
@@ -454,7 +454,7 @@ class ToolExecutor:
 
     def _tool_approach(self, distance=None):
         """开环慢速直线逼近: 判据复刻 executor 的 driveDistance
-        (±10°前向窗, 0.6m 早停, 0.1m/s, odom/scan 超时保护)."""
+        (±10°前向窗, 0.7m 早停, 0.1m/s, odom/scan 超时保护)."""
         self._approach_ok = False  # 本次逼近的结果决定能否抓取
         if self._cmd_vel_pub is None or self._odom_provider is None \
                 or self._scan_provider is None:

@@ -140,7 +140,7 @@ class BrainNode(Node):
         self.declare_parameter('arm_timeout_sec', 130.0)   # 机械臂调用上限
         # approach 逼近参数, 与 mission_executor 的 driveDistance 一致
         self.declare_parameter('approach_speed', 0.1)          # m/s
-        self.declare_parameter('approach_stop_distance', 0.6)  # 前方障碍早停 (m)
+        self.declare_parameter('approach_stop_distance', 0.7)  # 前方障碍早停 (m)
         self.declare_parameter('approach_max_distance', 1.5)   # 单次逼近上限 (m)
         self.declare_parameter('history_max', 20)
         self.declare_parameter('audit_file', '~/.kybot_brain/audit.jsonl')
