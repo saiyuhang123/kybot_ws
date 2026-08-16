@@ -37,6 +37,10 @@ def generate_launch_description():
             'color_topic': '/front_camera/camera/color/image_raw',
             'conf': 0.25,
             'infer_every': 1,
+            'camera_height_above_laser': 0.10,
+            'camera_pitch_deg': 10.0,
+            'laser_frame': 'laser_fe',
+            'map_frame': 'map',
         }],
     )
 

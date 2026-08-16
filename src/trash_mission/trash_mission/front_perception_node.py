@@ -11,6 +11,7 @@ yolov8n.pt，可通过 model_path 参数换成 YOLO-World 等模型），
   /trash/annotated_image   画框+距离标注图
   /trash/target            TrashTarget 结构化结果
   /trash/detection         JSON 调试结果
+  /trash/target_map        目标点在 map 系下的 PoseStamped（快速验证用）
 
 用法：
   ros2 run trash_mission front_perception_node
@@ -23,6 +24,7 @@ yolov8n.pt，可通过 model_path 参数换成 YOLO-World 等模型），
 """
 
 import json
+import math
 import threading
 from collections import deque
 
@@ -32,9 +34,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rclpy.executors import ExternalShutdownException
+from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import CameraInfo, Image
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
+from tf2_ros import Buffer, TransformListener
 from cv_bridge import CvBridge
 from ultralytics import YOLO
 from trash_mission_interfaces.msg import TrashTarget
@@ -67,6 +71,11 @@ class FrontPerceptionNode(Node):
         self.declare_parameter('distance_window', 7)
         self.declare_parameter('min_valid_depth_ratio', 0.2)
         self.declare_parameter('depth_grace', 0.5)  # 深度短暂失效时沿用旧距离的秒数
+        # D435 俯仰投影快速验证参数（暂定值，正式标定后覆盖）
+        self.declare_parameter('camera_height_above_laser', 0.10)
+        self.declare_parameter('camera_pitch_deg', 10.0)
+        self.declare_parameter('laser_frame', 'laser_fe')
+        self.declare_parameter('map_frame', 'map')
 
         self.model_path = self.get_parameter('model_path').value
         self.prompts = [
@@ -91,6 +100,12 @@ class FrontPerceptionNode(Node):
         self.min_valid_ratio = self.get_parameter(
             'min_valid_depth_ratio').value
         self.depth_grace = self.get_parameter('depth_grace').value
+        self.camera_height = self.get_parameter(
+            'camera_height_above_laser').value
+        self.camera_pitch = math.radians(
+            self.get_parameter('camera_pitch_deg').value)
+        self.laser_frame = self.get_parameter('laser_frame').value
+        self.map_frame = self.get_parameter('map_frame').value
         # 标准检测模型（如 yolov8n）按 COCO 类别 id 过滤；None 表示不过滤
         self._class_ids = None
 
@@ -105,11 +120,18 @@ class FrontPerceptionNode(Node):
         self._depth_lock = threading.Lock()
         self._latest_depth = None
         self._fx = None
+        self._fy = None
         self._ppx = None
+        self._py = None
         self._odom_speed = None
         self._odom_stamp = None
         self._have_odom = False
         self._odom_stale_warned = False
+        self._tf_warned = False
+
+        # TF: map -> laser_fe，用于把相机测得的瓶子位置投到地图系
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # 距离滤波与停车确认
         self._dist_window = deque(maxlen=self.distance_window)
@@ -141,6 +163,8 @@ class FrontPerceptionNode(Node):
             Image, '/trash/annotated_image', 10)
         self.target_pub = self.create_publisher(
             TrashTarget, '/trash/target', 10)
+        self.target_map_pub = self.create_publisher(
+            PoseStamped, '/trash/target_map', 10)
         self.detection_pub = self.create_publisher(
             String, '/trash/detection', 10)
         self.create_subscription(
@@ -234,7 +258,9 @@ class FrontPerceptionNode(Node):
         try:
             if len(msg.k) >= 9:
                 self._fx = float(msg.k[0])
+                self._fy = float(msg.k[4])
                 self._ppx = float(msg.k[2])
+                self._py = float(msg.k[5])
         except Exception as e:
             self.get_logger().error(f'camera_info 解析失败: {e}')
 
@@ -313,6 +339,71 @@ class FrontPerceptionNode(Node):
             cx = (box['x1'] + box['x2']) / 2.0
             lateral = float((cx - self._ppx) * dist / self._fx)
         return dist, lateral
+
+    def _publish_target_map(self, stamp, best, dist, lateral):
+        """把相机测得的瓶子位置投到 map 系并发布 PoseStamped。
+
+        快速验证版：假设 D435 光心在 laser_fe 正上方 h 米，相机向下
+        俯仰 theta 角。dist 是光轴深度，先投影到激光水平系，再查
+        map -> laser_fe 转地图坐标。
+        """
+        if dist is None or lateral is None or stamp is None:
+            return
+        if self._fy is None or self._py is None:
+            if not self._tf_warned:
+                self.get_logger().warn(
+                    '缺少 fy/cy，无法计算俯仰投影，/trash/target_map 不发布')
+                self._tf_warned = True
+            return
+
+        theta = self.camera_pitch
+        v_pix = ((best['y1'] + best['y2']) / 2.0) - self._py
+        y_cam = v_pix * dist / self._fy  # 光学系 y 向下为正
+
+        # 相机光心在 laser_fe 正上方，仅俯仰 theta：
+        #   laser x = 光轴深度的水平投影 - 目标纵向偏移的俯仰分量
+        #   laser y = -lateral（D435 正右 = 车体/激光的 -y）
+        x_laser = dist * math.cos(theta) - y_cam * math.sin(theta)
+        y_laser = -float(lateral)
+        z_laser = self.camera_height - dist * math.sin(theta) \
+            - y_cam * math.cos(theta)
+        p_laser = np.array([x_laser, y_laser, z_laser])
+
+        try:
+            from rclpy.time import Time
+            when = Time.from_msg(stamp)
+            tf = self.tf_buffer.lookup_transform(
+                self.map_frame, self.laser_frame, when)
+        except Exception:
+            try:
+                from rclpy.time import Time
+                tf = self.tf_buffer.lookup_transform(
+                    self.map_frame, self.laser_frame, Time())
+            except Exception as exc:
+                if not self._tf_warned:
+                    self.get_logger().warn(
+                        f'map -> {self.laser_frame} 不可用({exc})，'
+                        '/trash/target_map 不发布')
+                    self._tf_warned = True
+                return
+
+        self._tf_warned = False
+        q = tf.transform.rotation
+        t = np.array([tf.transform.translation.x,
+                      tf.transform.translation.y,
+                      tf.transform.translation.z])
+        qv = np.array([q.x, q.y, q.z])
+        p_map = p_laser + 2.0 * np.cross(
+            qv, np.cross(qv, p_laser) + q.w * p_laser) + t
+
+        msg = PoseStamped()
+        msg.header.stamp = stamp
+        msg.header.frame_id = self.map_frame
+        msg.pose.position.x = float(p_map[0])
+        msg.pose.position.y = float(p_map[1])
+        msg.pose.position.z = 0.0  # 2D 地图目标，只关心 x/y
+        msg.pose.orientation.w = 1.0
+        self.target_map_pub.publish(msg)
 
     # ---------------- 推理 ----------------
     def _process_latest_frame(self):
@@ -450,6 +541,11 @@ class FrontPerceptionNode(Node):
         target.stationary_confirm = self._stationary_confirm
         target.blur = float(blur)
         self.target_pub.publish(target)
+
+        # 地图系目标点：快速验证俯仰投影 + map->laser_fe TF
+        if target.distance_valid and best is not None:
+            self._publish_target_map(
+                stamp, best, self._last_filtered_dist, self._last_lateral)
 
         # 发布 JSON 调试结果
         sec = stamp.sec + stamp.nanosec * 1e-9 if stamp else 0.0
