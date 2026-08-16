@@ -25,6 +25,8 @@ def generate_launch_description():
                 'bottle_interrupt_distance': 2.0,  # 运动中检测到瓶子后，距离到这个值才中断停车
                 'max_bottle_interrupts_per_waypoint': 2,
                 'bottle_candidate_frames': 3,
+                'use_map_goal_approach': True,
+                'approach_goal_timeout': 3.0,
             }],
         ),
     ])

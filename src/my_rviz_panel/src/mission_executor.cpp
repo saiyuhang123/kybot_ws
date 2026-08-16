@@ -23,9 +23,14 @@ MissionExecutor::MissionExecutor(const std::string& name)
     declare_parameter("bottle_interrupt_distance", 2.0);
     declare_parameter("max_bottle_interrupts_per_waypoint", 2);
     declare_parameter("bottle_candidate_frames", 3);
+    declare_parameter("use_map_goal_approach", true);
+    declare_parameter("approach_goal_timeout", 3.0);
 
     setupServices();
     setupClients();
+
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
 
     cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -36,6 +41,10 @@ MissionExecutor::MissionExecutor(const std::string& name)
         create_subscription<trash_mission_interfaces::msg::TrashTarget>(
             "/trash/target", 10,
             std::bind(&MissionExecutor::onTrashTarget, this, _1));
+    approach_goal_sub_ =
+        create_subscription<geometry_msgs::msg::PoseStamped>(
+            "/trash/approach_goal", 10,
+            std::bind(&MissionExecutor::onApproachGoal, this, _1));
 
     RCLCPP_INFO(get_logger(), "MissionExecutor ready (M3)");
 }
@@ -166,6 +175,19 @@ void MissionExecutor::onTrashTarget(
                     "interrupt nav",
                     frames, msg->distance);
     }
+}
+
+void MissionExecutor::onApproachGoal(
+    const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+{
+    if (!msg || msg->header.frame_id != "map")
+    {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(trash_mutex_);
+    latest_approach_goal_ = *msg;
+    latest_approach_goal_time_ = now();
+    have_approach_goal_ = true;
 }
 
 void MissionExecutor::publishVelocity(double linear_x)
@@ -639,7 +661,8 @@ void MissionExecutor::executeMission()
 // ============================================================
 
 MissionExecutor::NavResult MissionExecutor::navigateTo(
-    const geometry_msgs::msg::PoseStamped& pose)
+    const geometry_msgs::msg::PoseStamped& pose,
+    bool allow_bottle_interrupt)
 {
     // 等待 action server
     if (!nav_client_->wait_for_action_server(5s))
@@ -674,7 +697,7 @@ MissionExecutor::NavResult MissionExecutor::navigateTo(
             nav_client_->async_cancel_goal(goal_handle);
             return NavResult::FAILED;
         }
-        if (bottle_interrupt_.load())
+        if (allow_bottle_interrupt && bottle_interrupt_.load())
         {
             RCLCPP_INFO(get_logger(),
                         "Bottle candidate detected, interrupting navigation");
@@ -784,14 +807,31 @@ bool MissionExecutor::pickupBottle(size_t waypoint_index)
     }
     RCLCPP_INFO(get_logger(), "Bottle confirmed, start approach");
 
-    // 2. D435 距离接近
+    // 2. 接近瓶子：优先使用感知节点算好的 map goal（0.55m + 朝向），
+    //    不可用时回退原来的 D435 距离直线逼近。
     publishStatus(hk_camera::msg::MissionStatus::STATE_APPROACHING,
                   waypoint_index, "Approaching bottle");
     double approached = 0.0;
-    const bool approach_ok = approachToBottle(approached);
+    geometry_msgs::msg::PoseStamped pre_approach_pose;
+    bool map_goal_available = false;
+    const bool map_goal_ok =
+        approachToBottleMapGoal(pre_approach_pose, map_goal_available);
+    const bool used_map_goal = map_goal_available;
+    bool approach_ok = map_goal_ok;
+    if (!map_goal_available)
+    {
+        RCLCPP_INFO(get_logger(),
+                    "Map-goal approach unavailable, fallback to straight D435 approach");
+        approach_ok = approachToBottle(approached);
+    }
+    else if (!map_goal_ok)
+    {
+        RCLCPP_WARN(get_logger(),
+                    "Map-goal approach failed, will not fallback blindly");
+    }
     if (!approach_ok)
     {
-        RCLCPP_WARN(get_logger(), "Approach failed after %.2fm", approached);
+        RCLCPP_WARN(get_logger(), "Approach failed");
     }
 
     // 3. 抓取
@@ -812,10 +852,20 @@ bool MissionExecutor::pickupBottle(size_t waypoint_index)
         callTriggerService(place_client_, "/yolo_grasp/place", 120.0);
     }
 
-    // 5. 原路退回
+    // 5. 退回：map goal 方案用 Nav2 回到逼近前位姿；旧方案按行进距离原路倒回。
     publishStatus(hk_camera::msg::MissionStatus::STATE_RETREATING,
                   waypoint_index, "Retreating");
-    if (approached > 0.05)
+    if (used_map_goal)
+    {
+        RCLCPP_INFO(get_logger(),
+                    "Return to pre-approach pose via Nav2");
+        if (navigateTo(pre_approach_pose, false) != NavResult::OK)
+        {
+            RCLCPP_ERROR(get_logger(),
+                         "Retreat via Nav2 FAILED, please check manually");
+        }
+    }
+    else if (approached > 0.05)
     {
         double retreated = 0.0;
         if (!driveDistance(approached, approach_speed, false, retreated))
@@ -1024,6 +1074,74 @@ bool MissionExecutor::approachToBottle(double& traveled_distance)
         traveled_distance += driven;
     }
     return true;
+}
+
+bool MissionExecutor::getRobotPoseMap(
+    geometry_msgs::msg::PoseStamped& pose)
+{
+    try
+    {
+        auto tf = tf_buffer_->lookupTransform(
+            "map", "base_link", tf2::TimePointZero);
+        pose.header = tf.header;
+        pose.pose.position.x = tf.transform.translation.x;
+        pose.pose.position.y = tf.transform.translation.y;
+        pose.pose.position.z = tf.transform.translation.z;
+        pose.pose.orientation = tf.transform.rotation;
+        return true;
+    }
+    catch (const tf2::TransformException& exc)
+    {
+        RCLCPP_WARN(get_logger(), "map -> base_link 不可用: %s", exc.what());
+        return false;
+    }
+}
+
+bool MissionExecutor::getLatestApproachGoal(
+    geometry_msgs::msg::PoseStamped& goal)
+{
+    std::lock_guard<std::mutex> lock(trash_mutex_);
+    if (!have_approach_goal_)
+    {
+        return false;
+    }
+    const double age = (now() - latest_approach_goal_time_).seconds();
+    if (age > get_parameter("approach_goal_timeout").as_double())
+    {
+        RCLCPP_WARN(get_logger(),
+                    "Latest /trash/approach_goal is %.1fs old, ignore",
+                    age);
+        return false;
+    }
+    goal = latest_approach_goal_;
+    return true;
+}
+
+bool MissionExecutor::approachToBottleMapGoal(
+    geometry_msgs::msg::PoseStamped& retreat_pose,
+    bool& goal_available)
+{
+    goal_available = false;
+    if (!get_parameter("use_map_goal_approach").as_bool())
+    {
+        return false;
+    }
+    if (!getRobotPoseMap(retreat_pose))
+    {
+        return false;
+    }
+    geometry_msgs::msg::PoseStamped goal;
+    if (!getLatestApproachGoal(goal))
+    {
+        RCLCPP_WARN(get_logger(),
+                    "/trash/approach_goal 不可用，回退直线逼近");
+        return false;
+    }
+    goal_available = true;
+    RCLCPP_INFO(get_logger(),
+                "Approach using map goal: [%.3f, %.3f, yaw from quaternion]",
+                goal.pose.position.x, goal.pose.position.y);
+    return navigateTo(goal, false) == NavResult::OK;
 }
 
 bool MissionExecutor::setPTZPose(float pan, float tilt, float zoom)

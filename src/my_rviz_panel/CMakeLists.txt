@@ -68,6 +68,7 @@ ament_target_dependencies(mission_executor
   geometry_msgs
   nav_msgs
   sensor_msgs
+  tf2_ros
 )
 
 # ---- 安装规则 ----

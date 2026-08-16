@@ -12,6 +12,8 @@ yolov8n.pt，可通过 model_path 参数换成 YOLO-World 等模型），
   /trash/target            TrashTarget 结构化结果
   /trash/detection         JSON 调试结果
   /trash/target_map        目标点在 map 系下的 PoseStamped（快速验证用）
+  /trash/approach_goal     停车导航目标：瓶子前方 goal_standoff_distance 米，
+                           yaw 朝向瓶子（map 系）
 
 用法：
   ros2 run trash_mission front_perception_node
@@ -76,6 +78,8 @@ class FrontPerceptionNode(Node):
         self.declare_parameter('camera_pitch_deg', 10.0)
         self.declare_parameter('laser_frame', 'laser_fe')
         self.declare_parameter('map_frame', 'map')
+        self.declare_parameter('robot_frame', 'base_link')
+        self.declare_parameter('goal_standoff_distance', 0.55)
 
         self.model_path = self.get_parameter('model_path').value
         self.prompts = [
@@ -106,6 +110,9 @@ class FrontPerceptionNode(Node):
             self.get_parameter('camera_pitch_deg').value)
         self.laser_frame = self.get_parameter('laser_frame').value
         self.map_frame = self.get_parameter('map_frame').value
+        self.robot_frame = self.get_parameter('robot_frame').value
+        self.goal_standoff = self.get_parameter(
+            'goal_standoff_distance').value
         # 标准检测模型（如 yolov8n）按 COCO 类别 id 过滤；None 表示不过滤
         self._class_ids = None
 
@@ -128,6 +135,7 @@ class FrontPerceptionNode(Node):
         self._have_odom = False
         self._odom_stale_warned = False
         self._tf_warned = False
+        self._robot_tf_warned = False
 
         # TF: map -> laser_fe，用于把相机测得的瓶子位置投到地图系
         self.tf_buffer = Buffer()
@@ -165,6 +173,8 @@ class FrontPerceptionNode(Node):
             TrashTarget, '/trash/target', 10)
         self.target_map_pub = self.create_publisher(
             PoseStamped, '/trash/target_map', 10)
+        self.approach_goal_pub = self.create_publisher(
+            PoseStamped, '/trash/approach_goal', 10)
         self.detection_pub = self.create_publisher(
             String, '/trash/detection', 10)
         self.create_subscription(
@@ -404,6 +414,52 @@ class FrontPerceptionNode(Node):
         msg.pose.position.z = 0.0  # 2D 地图目标，只关心 x/y
         msg.pose.orientation.w = 1.0
         self.target_map_pub.publish(msg)
+
+        # 同时发布“停在瓶子前方 goal_standoff 米且车头朝向瓶子”的导航目标
+        self._publish_approach_goal(stamp, p_map)
+
+    def _publish_approach_goal(self, stamp, p_bottle_map):
+        """根据 map 系下的瓶子和机器人当前位置生成 0.55m 停车目标。"""
+        try:
+            from rclpy.time import Time
+            when = Time.from_msg(stamp)
+            tf = self.tf_buffer.lookup_transform(
+                self.map_frame, self.robot_frame, when)
+        except Exception:
+            try:
+                from rclpy.time import Time
+                tf = self.tf_buffer.lookup_transform(
+                    self.map_frame, self.robot_frame, Time())
+            except Exception as exc:
+                if not self._robot_tf_warned:
+                    self.get_logger().warn(
+                        f'map -> {self.robot_frame} 不可用({exc})，'
+                        '/trash/approach_goal 不发布')
+                    self._robot_tf_warned = True
+                return
+
+        self._robot_tf_warned = False
+        rx = tf.transform.translation.x
+        ry = tf.transform.translation.y
+        dx = float(p_bottle_map[0]) - rx
+        dy = float(p_bottle_map[1]) - ry
+        dist = float(np.hypot(dx, dy))
+        if dist < 1e-3:
+            return
+        ux = dx / dist
+        uy = dy / dist
+
+        goal = PoseStamped()
+        goal.header.stamp = stamp
+        goal.header.frame_id = self.map_frame
+        goal.pose.position.x = float(p_bottle_map[0]) - self.goal_standoff * ux
+        goal.pose.position.y = float(p_bottle_map[1]) - self.goal_standoff * uy
+        goal.pose.position.z = 0.0
+
+        yaw = math.atan2(uy, ux)
+        goal.pose.orientation.z = math.sin(yaw * 0.5)
+        goal.pose.orientation.w = math.cos(yaw * 0.5)
+        self.approach_goal_pub.publish(goal)
 
     # ---------------- 推理 ----------------
     def _process_latest_frame(self):

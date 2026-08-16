@@ -41,6 +41,8 @@ def generate_launch_description():
             'camera_pitch_deg': 10.0,
             'laser_frame': 'laser_fe',
             'map_frame': 'map',
+            'robot_frame': 'base_link',
+            'goal_standoff_distance': 0.55,
         }],
     )
 

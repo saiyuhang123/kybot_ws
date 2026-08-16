@@ -5,9 +5,12 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include "trash_mission_interfaces/msg/trash_target.hpp"
 #include "hk_camera/msg/mission_waypoint.hpp"
@@ -82,9 +85,15 @@ private:
 
     // ---- 任务执行 (独立线程) ----
     void executeMission();
-    NavResult navigateTo(const geometry_msgs::msg::PoseStamped& pose);
+    NavResult navigateTo(const geometry_msgs::msg::PoseStamped& pose,
+                         bool allow_bottle_interrupt = true);
     bool pickupBottle(size_t waypoint_index);
     bool approachToBottle(double& traveled_distance);
+    bool approachToBottleMapGoal(
+        geometry_msgs::msg::PoseStamped& retreat_pose,
+        bool& goal_available);
+    bool getRobotPoseMap(geometry_msgs::msg::PoseStamped& pose);
+    bool getLatestApproachGoal(geometry_msgs::msg::PoseStamped& goal);
     bool callTriggerService(
         rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client,
         const std::string& name, double timeout_sec);
@@ -95,6 +104,8 @@ private:
     void onScan(const sensor_msgs::msg::LaserScan::SharedPtr msg);
     void onTrashTarget(
         const trash_mission_interfaces::msg::TrashTarget::SharedPtr msg);
+    void onApproachGoal(
+        const geometry_msgs::msg::PoseStamped::SharedPtr msg);
     void publishVelocity(double linear_x);
     void stopBase();
     bool getFrontObstacleDistance(double& distance) const;
@@ -117,6 +128,10 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
     rclcpp::Subscription<trash_mission_interfaces::msg::TrashTarget>::SharedPtr
         trash_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr
+        approach_goal_sub_;
+    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 
     mutable std::mutex sensor_mutex_;
     nav_msgs::msg::Odometry latest_odom_;
@@ -134,6 +149,10 @@ private:
     // 最近一次有效瓶子距离（停车静态确认后开环逼近用）
     double last_good_bottle_dist_{-1.0};
     rclcpp::Time last_good_bottle_time_;
+    // /trash/approach_goal: 感知节点算好的地图系停车位姿
+    geometry_msgs::msg::PoseStamped latest_approach_goal_;
+    rclcpp::Time latest_approach_goal_time_;
+    bool have_approach_goal_{false};
     std::atomic<bool> bottle_interrupt_{false};
     std::atomic<bool> bottle_confirmed_{false};
     int bottle_candidate_count_{0};
