@@ -471,12 +471,12 @@ void MissionExecutor::executeMission()
         RCLCPP_INFO(get_logger(), "Arm home2 service not available, skipping stow");
     }
 
+    size_t current_index = 0;
     for (size_t i = 0; i < total; i++)
     {
+        current_index = i;
         if (mission_cancel_)
         {
-            publishStatus(hk_camera::msg::MissionStatus::STATE_CANCELED,
-                          i, "Mission canceled");
             break;
         }
 
@@ -614,7 +614,17 @@ void MissionExecutor::executeMission()
         }
     }
 
-    if (!mission_cancel_)
+    if (mission_cancel_)
+    {
+        // 任务线程退出前保证最后一次状态一定是 CANCELED。
+        // 取消可能发生在 NAVIGATING/APPROACHING/RETREATING 等阶段，
+        // 若不在收尾统一发布，launcher 会一直停留在最后一个 busy 状态。
+        publishStatus(hk_camera::msg::MissionStatus::STATE_CANCELED,
+                      static_cast<uint8_t>(current_index), "Mission canceled");
+        RCLCPP_INFO(get_logger(), "Mission canceled at waypoint %zu",
+                    current_index);
+    }
+    else
     {
         publishStatus(hk_camera::msg::MissionStatus::STATE_COMPLETED,
                       total, "Mission completed");

@@ -3,7 +3,7 @@
 <package format="3">
   <name>kybot_brain</name>
   <version>0.1.0</version>
-  <description>LLM (Qwen) task scheduler for KYBOT: text command -&gt; function calling -&gt; existing mission/camera services. Add-on package, no changes to existing nodes.</description>
+  <description>LLM (DeepSeek) task scheduler for KYBOT: text command -&gt; function calling -&gt; existing mission/camera services. Add-on package, no changes to existing nodes.</description>
   <maintainer email="nvidia@todo.todo">nvidia</maintainer>
   <license>TODO</license>
 

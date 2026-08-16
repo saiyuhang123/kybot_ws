@@ -1,4 +1,4 @@
-"""kybot_brain 主节点: 文本指令 -> Qwen function calling -> 现有调度服务.
+"""kybot_brain 主节点: 文本指令 -> DeepSeek function calling -> 现有调度服务.
 
 输入: 订阅 /brain_text (std_msgs/String)
 输出: 发布 /brain_reply (回复) 和 /tts_text (为语音播报预留)
@@ -73,7 +73,7 @@ class BrainNode(Node):
         # LLM 客户端
         if not self._api_key:
             self.get_logger().warn(
-                '未配置 api_key: 请 export DASHSCOPE_API_KEY 或设置参数 api_key。'
+                '未配置 api_key: 请 export DEEPSEEK_API_KEY 或设置参数 api_key。'
                 '节点照常运行, 但 LLM 调用会失败。')
         self._llm = LLMClient(self._api_key, self._api_base, self._model,
                               self._llm_timeout, self.get_logger())
@@ -128,10 +128,9 @@ class BrainNode(Node):
     # ---------- 参数 ----------
 
     def _declare_params(self):
-        self.declare_parameter('api_base',
-                               'https://dashscope.aliyuncs.com/compatible-mode/v1')
-        self.declare_parameter('model', 'qwen-plus')
-        self.declare_parameter('api_key', '')  # 空则用 DASHSCOPE_API_KEY
+        self.declare_parameter('api_base', 'https://api.deepseek.com')
+        self.declare_parameter('model', 'deepseek-v4-flash')
+        self.declare_parameter('api_key', '')  # 空则用 DEEPSEEK_API_KEY
         self.declare_parameter('waypoints_file',
                                '/home/nvidia/kybot_ws/location/location.yaml')
         self.declare_parameter('llm_timeout_sec', 60.0)
@@ -149,7 +148,9 @@ class BrainNode(Node):
         p = self.get_parameter
         self._api_base = p('api_base').value
         self._model = p('model').value
-        self._api_key = p('api_key').value or os.getenv('DASHSCOPE_API_KEY', '')
+        self._api_key = (p('api_key').value
+                         or os.getenv('DEEPSEEK_API_KEY', '')
+                         or os.getenv('DASHSCOPE_API_KEY', ''))
         self._waypoints_file = p('waypoints_file').value
         self._llm_timeout = p('llm_timeout_sec').value
         self._service_timeout = p('service_timeout_sec').value
@@ -253,7 +254,7 @@ class BrainNode(Node):
 
         for _ in range(MAX_LLM_ROUNDS):
             with self._lock:
-                snapshot = list(self._messages)
+                snapshot = self._ordered_snapshot_locked()
             try:
                 message = self._llm.chat(snapshot, TOOL_SCHEMAS)
             except LLMError as exc:
@@ -301,6 +302,46 @@ class BrainNode(Node):
                         'content': result,
                     })
         self._announce('处理超时: 工具调用轮数过多, 请换个说法再试')
+
+    def _ordered_snapshot_locked(self):
+        """生成发送给 LLM 的历史快照 (调用方须已持锁)。
+
+        DeepSeek 比 Qwen 更严格: 带 tool_calls 的 assistant 消息后面必须
+        紧跟对应 tool 消息。状态回调/历史裁剪可能把 system 事件插到两者
+        之间, 直接发送会被 DeepSeek 以 400 拒绝。这里把夹在工具调用和
+        工具结果之间的非 tool 消息挪到该组工具结果之后, 保证 API 合法。
+        """
+        ordered = []
+        deferred = []
+        pending_ids = []
+        tool_seq_start = None
+        for msg in self._messages:
+            if pending_ids:
+                if (msg.get('role') == 'tool'
+                        and msg.get('tool_call_id') in pending_ids):
+                    ordered.append(msg)
+                    pending_ids.remove(msg['tool_call_id'])
+                    if not pending_ids:
+                        ordered.extend(deferred)
+                        deferred = []
+                else:
+                    deferred.append(msg)
+                continue
+            if msg.get('role') == 'tool':
+                continue  # 孤立 tool 消息: 已被历史裁剪丢了 assistant, 丢弃
+            if (msg.get('role') == 'assistant' and msg.get('tool_calls')):
+                ordered.append(msg)
+                pending_ids = [tc.get('id') for tc in msg['tool_calls']
+                               if tc.get('id')]
+                if pending_ids:
+                    tool_seq_start = len(ordered) - 1
+                continue
+            ordered.append(msg)
+        if pending_ids:
+            # 不完整的 tool_calls 序列: 丢弃这条 assistant 及其零散 tool 回执
+            del ordered[tool_seq_start:]
+            ordered.extend(deferred)
+        return ordered
 
     def _trim_history_locked(self):
         """保留 system + 最近 N 条 (调用方须已持锁)."""

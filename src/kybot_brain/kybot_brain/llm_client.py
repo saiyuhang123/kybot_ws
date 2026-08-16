@@ -1,7 +1,7 @@
-"""Qwen (dashscope OpenAI 兼容模式) chat + function calling 客户端.
+"""DeepSeek (OpenAI 兼容模式) chat + function calling 客户端.
 
-纯 requests 实现, 无新增 pip 依赖. 与 qwen_vision 包保持同一套
-DASHSCOPE_API_KEY 环境变量约定.
+纯 requests 实现, 无新增 pip 依赖。Key 优先从参数 api_key 读取，
+未设置时回退到环境变量 DEEPSEEK_API_KEY / DASHSCOPE_API_KEY。
 """
 
 import json

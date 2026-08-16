@@ -18,7 +18,7 @@ setup(
     zip_safe=True,
     maintainer='nvidia',
     maintainer_email='nvidia@todo.todo',
-    description='LLM task scheduler for KYBOT (Qwen function calling)',
+    description='LLM task scheduler for KYBOT (DeepSeek function calling)',
     license='TODO',
     tests_require=['pytest'],
     entry_points={
