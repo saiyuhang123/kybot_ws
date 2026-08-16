@@ -31,8 +31,8 @@ def generate_launch_description():
         name='front_perception_node',
         output='screen',
         parameters=[{
-            'model_path': '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8x-worldv2.pt',
-            'prompts': 'iced tea bottle,bottle',
+            'model_path': '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8n.pt',
+            'prompts': 'bottle',
             'show': True,
             'color_topic': '/front_camera/camera/color/image_raw',
             'conf': 0.25,

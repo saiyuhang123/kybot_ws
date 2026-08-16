@@ -14,26 +14,26 @@ ros2 launch trash_mission trash_mission.launch.py
 会启动：
 
 - 车前 D435（命名空间 `front_camera`，彩色 640x480 + 对齐深度）
-- `front_perception_node`：YOLO-World 实时检测，弹出检测画面
+- `front_perception_node`：YOLOv8n 实时检测（默认轻量模型），弹出检测画面
 
 启动参数：
 
 ```bash
 ros2 launch trash_mission trash_mission.launch.py \
-    prompts:="iced tea bottle,bottle" show:=true
+    prompts:="bottle" show:=true
 ```
 
 运行时切换提示词：
 
 ```bash
 ros2 topic pub /trash/target_class std_msgs/msg/String \
-    "{data: 'iced tea bottle,bottle'}"
+    "{data: 'bottle'}"
 ```
 
 画面按键：
 
 - `q` 退出
-- `b` 切到 `iced tea bottle,bottle`
+- `b` 切到 `bottle`
 - `a` 切到全部类别
 
 话题：

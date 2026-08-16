@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """M2：车前 D435 实时检测 + 距离测量 + 停车确认。
 
-订阅车前 D435 彩色图和对齐深度，用 YOLO-World 开放词汇模型实时检测，
+订阅车前 D435 彩色图和对齐深度，用 YOLO 模型实时检测（默认使用轻量
+yolov8n.pt，可通过 model_path 参数换成 YOLO-World 等模型），
 在检测框内取深度中位数作为距离；订阅 /odom 判断车是否停稳，
 停稳后多帧距离稳定才输出 stationary_confirm。
 
@@ -14,11 +15,11 @@
 用法：
   ros2 run trash_mission front_perception_node
   ros2 run trash_mission front_perception_node --ros-args \
-      -p prompts:="iced tea bottle,bottle" -p show:=true
+      -p prompts:="bottle" -p show:=true
 
 运行时切换提示词：
   ros2 topic pub /trash/target_class std_msgs/msg/String \
-      "{data: 'iced tea bottle,bottle'}"
+      "{data: 'bottle'}"
 """
 
 import json
@@ -46,8 +47,8 @@ class FrontPerceptionNode(Node):
         # ---------------- 参数 ----------------
         self.declare_parameter(
             'model_path',
-            '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8x-worldv2.pt')
-        self.declare_parameter('prompts', 'iced tea bottle,bottle')
+            '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8n.pt')
+        self.declare_parameter('prompts', 'bottle')
         self.declare_parameter('conf', 0.25)
         self.declare_parameter('color_topic',
                                '/front_camera/camera/color/image_raw')
@@ -90,6 +91,8 @@ class FrontPerceptionNode(Node):
         self.min_valid_ratio = self.get_parameter(
             'min_valid_depth_ratio').value
         self.depth_grace = self.get_parameter('depth_grace').value
+        # 标准检测模型（如 yolov8n）按 COCO 类别 id 过滤；None 表示不过滤
+        self._class_ids = None
 
         self.bridge = CvBridge()
         self._frame_lock = threading.Lock()
@@ -159,15 +162,44 @@ class FrontPerceptionNode(Node):
 
     # ---------------- 提示词 ----------------
     def _apply_prompts(self):
+        """把提示词应用到当前模型。
+
+        YOLO-World 等开放词汇模型使用 set_classes；
+        yolov8n 等标准检测模型把提示词映射为 COCO 类别 id，
+        推理时通过 classes= 过滤，避免检测出全部 80 类。
+        """
+        self._class_ids = None
         if hasattr(self.model, 'set_classes'):
             try:
                 self.model.set_classes(self.prompts)
                 self.get_logger().info(f'已设置开放词汇: {self.prompts}')
                 return
             except Exception as e:
-                self.get_logger().warn(f'set_classes 失败: {e}')
-        self.get_logger().warn(
-            '当前模型不支持开放词汇，将使用模型自带类别并过滤提示词')
+                self.get_logger().warn(f'set_classes 失败({e})，改为类别id过滤')
+
+        if any(p.strip().lower() in ('all', '全部', '*')
+               for p in self.prompts):
+            self.get_logger().info('提示词为 all，使用模型全部类别')
+            return
+
+        names = self.model.names if isinstance(self.model.names, dict) else {}
+        class_ids = []
+        for prompt in self.prompts:
+            p = prompt.strip().lower()
+            for class_id, name in names.items():
+                name_l = str(name).lower()
+                if name_l and name_l in p:
+                    class_ids.append(int(class_id))
+        self._class_ids = sorted(set(class_ids))
+        if not self._class_ids:
+            self.get_logger().warn(
+                f'标准检测模型中没有匹配提示词的类别: {self.prompts}，'
+                '将不输出检测结果')
+        else:
+            mapped = [names[i] for i in self._class_ids]
+            self.get_logger().info(
+                f'标准检测模型类别过滤: {self.prompts} -> {mapped} '
+                f'(class ids={self._class_ids})')
 
     def _target_class_cb(self, msg):
         prompts = [p.strip() for p in msg.data.split(',') if p.strip()]
@@ -300,6 +332,7 @@ class FrontPerceptionNode(Node):
 
         try:
             results = self.model.predict(frame, conf=self.conf,
+                                         classes=self._class_ids,
                                          verbose=False)
         except Exception as e:
             self.get_logger().error(f'推理异常: {e}')
@@ -444,7 +477,7 @@ class FrontPerceptionNode(Node):
                     self._quit = True
                     rclpy.shutdown()
                 elif key == ord('b'):
-                    self._set_prompt_from_key('iced tea bottle,bottle')
+                    self._set_prompt_from_key('bottle')
                 elif key == ord('a'):
                     self._set_prompt_from_key('all')
             except cv2.error as e:
