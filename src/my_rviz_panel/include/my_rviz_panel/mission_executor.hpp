@@ -93,7 +93,10 @@ private:
         geometry_msgs::msg::PoseStamped& retreat_pose,
         bool& goal_available);
     bool getRobotPoseMap(geometry_msgs::msg::PoseStamped& pose);
-    bool getLatestApproachGoal(geometry_msgs::msg::PoseStamped& goal);
+    bool getLatestApproachGoal(geometry_msgs::msg::PoseStamped& goal,
+                               bool warn = true);
+    bool waitForFreshApproachGoal(geometry_msgs::msg::PoseStamped& goal,
+                                  double timeout_sec);
     bool callTriggerService(
         rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client,
         const std::string& name, double timeout_sec);

@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """M2：车前 D435 实时检测 + 距离测量 + 停车确认。
 
-订阅车前 D435 彩色图和对齐深度，用 YOLO 模型实时检测（默认使用轻量
-yolov8n.pt，可通过 model_path 参数换成 YOLO-World 等模型），
+订阅车前 D435 彩色图和对齐深度，用 YOLO 模型实时检测（默认
+yolov8x-worldv2.pt，可通过 model_path 参数换成轻量模型），
 在检测框内取深度中位数作为距离；订阅 /odom 判断车是否停稳，
 停稳后多帧距离稳定才输出 stationary_confirm。
 
@@ -28,6 +28,7 @@ yolov8n.pt，可通过 model_path 参数换成 YOLO-World 等模型），
 import json
 import math
 import threading
+import time
 from collections import deque
 
 import cv2
@@ -53,7 +54,7 @@ class FrontPerceptionNode(Node):
         # ---------------- 参数 ----------------
         self.declare_parameter(
             'model_path',
-            '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8n.pt')
+            '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8x-worldv2.pt')
         self.declare_parameter('prompts', 'bottle')
         self.declare_parameter('conf', 0.25)
         self.declare_parameter('color_topic',
@@ -80,6 +81,11 @@ class FrontPerceptionNode(Node):
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('robot_frame', 'base_link')
         self.declare_parameter('goal_standoff_distance', 0.55)
+        # base_link -> laser_fe 的 x 偏移：车头/相机相对 base_link 的前伸量。
+        # goal_standoff 指的是“车前相机到瓶子”的距离，所以 base_link 要再退这个偏移。
+        self.declare_parameter('front_sensor_x_offset', 0.7295)
+        # 停车确认需持续该秒数后，才允许发布 /trash/approach_goal
+        self.declare_parameter('goal_settle_sec', 0.5)
 
         self.model_path = self.get_parameter('model_path').value
         self.prompts = [
@@ -113,6 +119,10 @@ class FrontPerceptionNode(Node):
         self.robot_frame = self.get_parameter('robot_frame').value
         self.goal_standoff = self.get_parameter(
             'goal_standoff_distance').value
+        self.front_sensor_x = self.get_parameter(
+            'front_sensor_x_offset').value
+        self.goal_settle_sec = self.get_parameter('goal_settle_sec').value
+        self._stationary_since = None
         # 标准检测模型（如 yolov8n）按 COCO 类别 id 过滤；None 表示不过滤
         self._class_ids = None
 
@@ -301,6 +311,19 @@ class FrontPerceptionNode(Node):
             return False
         return self._odom_speed >= self.speed_thresh
 
+    def _odom_fresh_for_stop(self):
+        """发布停车导航目标前，要求里程计新鲜且明确判为静止。
+
+        如果 /odom 丢失或超时，_is_moving() 会按静止处理，但这时不能
+        认为车辆真的停稳，因此单独用本方法把关 approach_goal 发布。
+        """
+        if not self._have_odom or self._odom_speed is None:
+            return False
+        if self._odom_stamp is None:
+            return False
+        age = (self.get_clock().now() - self._odom_stamp).nanoseconds / 1e9
+        return age <= 1.0 and self._odom_speed < self.speed_thresh
+
     def _pick_best_object(self, objects):
         if not objects:
             return None
@@ -350,12 +373,15 @@ class FrontPerceptionNode(Node):
             lateral = float((cx - self._ppx) * dist / self._fx)
         return dist, lateral
 
-    def _publish_target_map(self, stamp, best, dist, lateral):
+    def _publish_target_map(self, stamp, best, dist, lateral,
+                            publish_goal=False):
         """把相机测得的瓶子位置投到 map 系并发布 PoseStamped。
 
         快速验证版：假设 D435 光心在 laser_fe 正上方 h 米，相机向下
         俯仰 theta 角。dist 是光轴深度，先投影到激光水平系，再查
         map -> laser_fe 转地图坐标。
+        publish_goal=True 时才发布 /trash/approach_goal；调用方应只在
+        stationary_confirm=true 时打开，避免把运动中的目标点当导航目标。
         """
         if dist is None or lateral is None or stamp is None:
             return
@@ -415,11 +441,17 @@ class FrontPerceptionNode(Node):
         msg.pose.orientation.w = 1.0
         self.target_map_pub.publish(msg)
 
-        # 同时发布“停在瓶子前方 goal_standoff 米且车头朝向瓶子”的导航目标
-        self._publish_approach_goal(stamp, p_map)
+        # 只有停车确认通过时才发布导航目标，避免运动帧把 goal 带偏
+        if publish_goal:
+            self._publish_approach_goal(stamp, p_map)
 
     def _publish_approach_goal(self, stamp, p_bottle_map):
-        """根据 map 系下的瓶子和机器人当前位置生成 0.55m 停车目标。"""
+        """生成 Nav2 停车目标：最终车头/相机距瓶子 goal_standoff 米。
+
+        Nav2 的 goal 是 base_link 位姿，而 base_link 到车前激光/相机
+        有 front_sensor_x_offset 米前伸，所以 base_link 目标点要再往后
+        退这个偏移，否则车头会压到瓶子。
+        """
         try:
             from rclpy.time import Time
             when = Time.from_msg(stamp)
@@ -452,8 +484,10 @@ class FrontPerceptionNode(Node):
         goal = PoseStamped()
         goal.header.stamp = stamp
         goal.header.frame_id = self.map_frame
-        goal.pose.position.x = float(p_bottle_map[0]) - self.goal_standoff * ux
-        goal.pose.position.y = float(p_bottle_map[1]) - self.goal_standoff * uy
+        # base_link 目标距离 = 车头相机到瓶子的 0.55m + 车头前伸量
+        base_standoff = self.goal_standoff + self.front_sensor_x
+        goal.pose.position.x = float(p_bottle_map[0]) - base_standoff * ux
+        goal.pose.position.y = float(p_bottle_map[1]) - base_standoff * uy
         goal.pose.position.z = 0.0
 
         yaw = math.atan2(uy, ux)
@@ -511,6 +545,7 @@ class FrontPerceptionNode(Node):
         # ---------------- M2：距离测量与停车确认 ----------------
         best = self._pick_best_object(objects)
         moving = self._is_moving()
+        odom_ok_for_stop = self._odom_fresh_for_stop()
         dist = None
         lateral = None
 
@@ -540,8 +575,8 @@ class FrontPerceptionNode(Node):
         if dist is None or best is None:
             self._confirm_window.clear()
             self._stationary_confirm = False
-        elif moving:
-            # 运动中距离不可信，只粗检
+        elif moving or not odom_ok_for_stop:
+            # 运动中，或 /odom 丢失/超时无法证明已停稳时，不进入停车确认
             self._confirm_window.clear()
             self._stationary_confirm = False
         else:
@@ -563,7 +598,8 @@ class FrontPerceptionNode(Node):
                         else (0, 200, 255), 2)
 
         # 画面信息
-        state = 'MOVING' if moving else 'STOP'
+        state = ('MOVING' if moving
+                 else ('STOP' if odom_ok_for_stop else 'ODOM?'))
         confirm = 'OK' if self._stationary_confirm else '--'
         info = (f'blur={blur:.0f} detected={len(objects)} '
                 f'dist={self._last_filtered_dist if self._last_filtered_dist is not None else "--"}m '
@@ -598,10 +634,24 @@ class FrontPerceptionNode(Node):
         target.blur = float(blur)
         self.target_pub.publish(target)
 
+        # 停车确认持续 goal_settle_sec 秒后，才允许发布导航目标。
+        # 这样 mission_executor 拿到的一定是“停稳后”计算的目标，
+        # 而不是停车前/刚停下时的运动帧。
+        if self._stationary_confirm and self._odom_fresh_for_stop():
+            if self._stationary_since is None:
+                self._stationary_since = time.monotonic()
+        else:
+            self._stationary_since = None
+        publish_goal = (
+            self._stationary_since is not None
+            and (time.monotonic() - self._stationary_since)
+            >= self.goal_settle_sec)
+
         # 地图系目标点：快速验证俯仰投影 + map->laser_fe TF
         if target.distance_valid and best is not None:
             self._publish_target_map(
-                stamp, best, self._last_filtered_dist, self._last_lateral)
+                stamp, best, self._last_filtered_dist, self._last_lateral,
+                publish_goal=publish_goal)
 
         # 发布 JSON 调试结果
         sec = stamp.sec + stamp.nanosec * 1e-9 if stamp else 0.0

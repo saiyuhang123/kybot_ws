@@ -14,7 +14,7 @@ ros2 launch trash_mission trash_mission.launch.py
 会启动：
 
 - 车前 D435（命名空间 `front_camera`，彩色 640x480 + 对齐深度）
-- `front_perception_node`：YOLOv8n 实时检测（默认轻量模型），弹出检测画面
+- `front_perception_node`：YOLO-World 实时检测（默认 yolov8x-worldv2.pt），弹出检测画面
 
 启动参数：
 

@@ -23,7 +23,7 @@ def generate_launch_description():
                 'bottle_approach_speed': 0.15,  # 接近速度上限（米/秒）
                 'bottle_confirm_timeout': 5.0,  # 停车确认超时（秒）
                 'bottle_interrupt_distance': 2.0,  # 运动中检测到瓶子后，距离到这个值才中断停车
-                'max_bottle_interrupts_per_waypoint': 2,
+                'max_bottle_interrupts_per_waypoint': 10,
                 'bottle_candidate_frames': 3,
                 'use_map_goal_approach': True,
                 'approach_goal_timeout': 3.0,

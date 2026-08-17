@@ -31,7 +31,7 @@ def generate_launch_description():
         name='front_perception_node',
         output='screen',
         parameters=[{
-            'model_path': '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8n.pt',
+            'model_path': '/home/nvidia/Documents/elite_robot_ws/YOLO/yolov8x-worldv2.pt',
             'prompts': 'bottle',
             'show': True,
             'color_topic': '/front_camera/camera/color/image_raw',
@@ -43,6 +43,8 @@ def generate_launch_description():
             'map_frame': 'map',
             'robot_frame': 'base_link',
             'goal_standoff_distance': 0.55,
+            'front_sensor_x_offset': 0.7295,
+            'goal_settle_sec': 0.5,
         }],
     )
 

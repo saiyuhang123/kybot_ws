@@ -21,7 +21,7 @@ MissionExecutor::MissionExecutor(const std::string& name)
     declare_parameter("bottle_approach_speed", 0.15);
     declare_parameter("bottle_confirm_timeout", 5.0);
     declare_parameter("bottle_interrupt_distance", 2.0);
-    declare_parameter("max_bottle_interrupts_per_waypoint", 2);
+    declare_parameter("max_bottle_interrupts_per_waypoint", 10);
     declare_parameter("bottle_candidate_frames", 3);
     declare_parameter("use_map_goal_approach", true);
     declare_parameter("approach_goal_timeout", 3.0);
@@ -1098,7 +1098,7 @@ bool MissionExecutor::getRobotPoseMap(
 }
 
 bool MissionExecutor::getLatestApproachGoal(
-    geometry_msgs::msg::PoseStamped& goal)
+    geometry_msgs::msg::PoseStamped& goal, bool warn)
 {
     std::lock_guard<std::mutex> lock(trash_mutex_);
     if (!have_approach_goal_)
@@ -1108,13 +1108,38 @@ bool MissionExecutor::getLatestApproachGoal(
     const double age = (now() - latest_approach_goal_time_).seconds();
     if (age > get_parameter("approach_goal_timeout").as_double())
     {
-        RCLCPP_WARN(get_logger(),
-                    "Latest /trash/approach_goal is %.1fs old, ignore",
-                    age);
+        if (warn)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "Latest /trash/approach_goal is %.1fs old, ignore",
+                        age);
+        }
         return false;
     }
     goal = latest_approach_goal_;
     return true;
+}
+
+bool MissionExecutor::waitForFreshApproachGoal(
+    geometry_msgs::msg::PoseStamped& goal, double timeout_sec)
+{
+    // front_perception 在 stationary_confirm 后还要稳定 goal_settle_sec
+    // 才发布 approach_goal，所以这里不能只检查一次，必须等它到齐。
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::duration<double>(timeout_sec);
+    while (rclcpp::ok() && !mission_cancel_)
+    {
+        if (getLatestApproachGoal(goal, false))
+        {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline)
+        {
+            break;
+        }
+        rclcpp::sleep_for(100ms);
+    }
+    return false;
 }
 
 bool MissionExecutor::approachToBottleMapGoal(
@@ -1131,7 +1156,7 @@ bool MissionExecutor::approachToBottleMapGoal(
         return false;
     }
     geometry_msgs::msg::PoseStamped goal;
-    if (!getLatestApproachGoal(goal))
+    if (!waitForFreshApproachGoal(goal, 5.0))
     {
         RCLCPP_WARN(get_logger(),
                     "/trash/approach_goal 不可用，回退直线逼近");
