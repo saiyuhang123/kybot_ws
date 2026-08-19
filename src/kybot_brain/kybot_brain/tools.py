@@ -44,6 +44,7 @@ STATE_NAMES = {
     MissionStatus.STATE_GRASPING: '抓取中',
     MissionStatus.STATE_PLACING: '放置中',
     MissionStatus.STATE_RETREATING: '退回中',
+    MissionStatus.STATE_POLISHING: '打磨中',
 }
 
 # 任务终态集合
@@ -186,8 +187,16 @@ TOOL_SCHEMAS = [
     {
         'type': 'function',
         'function': {
+            'name': 'polish',
+            'description': '在导航到打磨点后执行完整命令3：机械臂到拍摄位、深度识别、接触、打磨，最后回 Home2。会等待真实成功/失败结果，最长约15分钟。',
+            'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
             'name': 'cancel_mission',
-            'description': '取消当前正在执行的巡检/导航任务',
+            'description': '取消当前正在执行的巡检/导航/打磨任务；打磨会先关磨头、退出力控、安全退刀并回 Home2',
             'parameters': {'type': 'object', 'properties': {}, 'required': []},
         },
     },
@@ -216,13 +225,31 @@ TOOL_SCHEMAS = [
     },
 ]
 
+GRIPPER_ONLY_TOOLS = {'approach', 'retreat', 'grasp', 'place',
+                      'arm_open', 'arm_ready'}
+POLISH_ONLY_TOOLS = {'polish'}
+MODE_ROUTE_ACTIONS = {
+    'twofinger': {'', 'grasp', 'place', 'home2', 'ready'},
+    'linkerhand': {'', 'grasp', 'place', 'home2', 'ready'},
+    'polish': {'', 'polish'},
+}
+
+
+def tool_schemas_for_mode(mode):
+    """只把当前物理末端能执行的工具暴露给大模型。"""
+    hidden = POLISH_ONLY_TOOLS if mode != 'polish' else GRIPPER_ONLY_TOOLS
+    return [schema for schema in TOOL_SCHEMAS
+            if schema['function']['name'] not in hidden]
+
 
 class ToolExecutor:
     """工具分发执行 + 审计日志. 在 brain_node 的工作线程里运行."""
 
     def __init__(self, node, waypoints_file, status_provider,
                  service_timeout_sec=10.0, nav_timeout_sec=300.0,
-                 arm_timeout_sec=130.0, interrupt_check=None, set_waiting=None,
+                 arm_timeout_sec=130.0, polish_timeout_sec=1020.0,
+                 end_effector_mode='twofinger',
+                 interrupt_check=None, set_waiting=None,
                  odom_provider=None, scan_provider=None, cmd_vel_pub=None,
                  approach_speed=0.1, approach_stop_distance=0.7,
                  approach_max_distance=1.5,
@@ -234,6 +261,8 @@ class ToolExecutor:
         self._timeout = service_timeout_sec
         self._nav_timeout = nav_timeout_sec      # navigate_and_wait 等终态上限
         self._arm_timeout = arm_timeout_sec      # 机械臂 Trigger 调用上限
+        self._polish_timeout = polish_timeout_sec
+        self._mode = end_effector_mode
         self._interrupt_check = interrupt_check or (lambda: False)
         self._set_waiting = set_waiting or (lambda active: None)
         # approach 逼近用: 传感数据提供方 + 底盘指令发布器
@@ -256,6 +285,10 @@ class ToolExecutor:
         self._arm_home_cli = node.create_client(Trigger, '/yolo_grasp/home2')
         self._arm_ready_cli = node.create_client(Trigger, '/yolo_grasp/ready')
         self._arm_open_cli = node.create_client(Trigger, '/yolo_grasp/open')
+        self._polish_cli = node.create_client(Trigger, '/elite_polish/run')
+        self._polish_cancel_cli = node.create_client(
+            Trigger, '/elite_polish/cancel')
+        self._polish_home_cli = node.create_client(Trigger, '/elite_polish/home')
         # OCR 识别 (拍照后顺手识别), 结果发 /ocr_feedback 供 UI 显示
         self._ocr_cli = node.create_client(RecognizeText, '/ocr/recognize')
         self._ocr_pub = node.create_publisher(String, '/ocr_feedback', 10)
@@ -271,11 +304,16 @@ class ToolExecutor:
         self._logger.info('执行工具 %s, 参数 %s'
                           % (name, json.dumps(args, ensure_ascii=False)))
         try:
-            handler = getattr(self, '_tool_' + name, None)
-            if handler is None:
-                result = '未知工具: %s' % name
+            if name in GRIPPER_ONLY_TOOLS and self._mode == 'polish':
+                result = '拒绝执行: 当前安装打磨头，不能执行夹爪/灵巧手动作'
+            elif name in POLISH_ONLY_TOOLS and self._mode != 'polish':
+                result = '拒绝执行: 当前安装%s，不能执行打磨动作' % self._mode
             else:
-                result = handler(**args)
+                handler = getattr(self, '_tool_' + name, None)
+                if handler is None:
+                    result = '未知工具: %s' % name
+                else:
+                    result = handler(**args)
         except WaitInterrupted:
             raise  # 中断等待要传到对话循环, 不能吞
         except TypeError as exc:  # LLM 给了错误参数名
@@ -319,6 +357,11 @@ class ToolExecutor:
 
     def _start_mission(self, selected, desc):
         """忙时拒绝 + 下发 /mission/run (单点/多点共用)."""
+        incompatible = [wp.name for wp in selected
+                        if wp.action not in MODE_ROUTE_ACTIONS.get(self._mode, {''})]
+        if incompatible:
+            return ('拒绝执行: 点位 %s 的预配置动作与当前末端 %s 不兼容'
+                    % ('、'.join(incompatible), self._mode))
         status = self._status_provider()
         if status is not None and status.state not in FREE_STATES:
             return ('拒绝执行: 当前有任务进行中(状态: %s), 请先取消或等待完成'
@@ -335,11 +378,24 @@ class ToolExecutor:
         return '任务被拒绝: %s' % res.message
 
     def _tool_cancel_mission(self):
+        results = []
         res = self._call(self._cancel_cli, Trigger.Request(), '/mission/cancel')
-        if res is None:
-            return '调用 /mission/cancel 失败: 服务无应答'
-        return ('已取消当前任务' if res.success
-                else '取消失败: %s' % res.message)
+        if res is not None:
+            results.append(('任务', res.success, res.message))
+        if self._mode == 'polish':
+            polish_res = self._call(
+                self._polish_cancel_cli, Trigger.Request(),
+                '/elite_polish/cancel')
+            if polish_res is not None:
+                results.append(('打磨', polish_res.success, polish_res.message))
+        if any(ok for _name, ok, _msg in results):
+            details = '；'.join('%s:%s' % (name, msg)
+                               for name, _ok, msg in results)
+            return '已请求安全取消；' + details
+        if results:
+            return '取消失败: ' + '；'.join(
+                '%s:%s' % (name, msg) for name, _ok, msg in results)
+        return '取消失败: 任务和打磨取消服务均无应答'
 
     def _tool_get_mission_status(self):
         status = self._status_provider()
@@ -444,6 +500,9 @@ class ToolExecutor:
         return self._call_arm(self._place_cli, '/yolo_grasp/place', '放置')
 
     def _tool_arm_home(self):
+        if self._mode == 'polish':
+            return self._call_arm(
+                self._polish_home_cli, '/elite_polish/home', '回 Home2')
         return self._call_arm(self._arm_home_cli, '/yolo_grasp/home2', '收臂')
 
     def _tool_arm_open(self):
@@ -451,6 +510,18 @@ class ToolExecutor:
 
     def _tool_arm_ready(self):
         return self._call_arm(self._arm_ready_cli, '/yolo_grasp/ready', '预备')
+
+    def _tool_polish(self):
+        """命令3完整流程，支持语音新指令触发安全取消。"""
+        res = self._call_interruptible(
+            self._polish_cli, Trigger.Request(), '/elite_polish/run',
+            timeout=self._polish_timeout,
+            cancel_client=self._polish_cancel_cli)
+        if res is None:
+            return ('打磨失败: /elite_polish/run 无应答或超时；'
+                    '底层已请求安全取消，请检查是否回到 Home2')
+        return ('打磨成功: %s' % res.message if res.success
+                else '打磨失败: %s' % res.message)
 
     def _tool_approach(self, distance=None):
         """开环慢速直线逼近: 判据复刻 executor 的 driveDistance
@@ -674,6 +745,35 @@ class ToolExecutor:
             client.remove_pending_request(future)
             self._logger.warn('服务 %s 调用超时' % srv_name)
             return None
+        try:
+            return future.result()
+        except Exception as exc:  # noqa: BLE001
+            self._logger.warn('服务 %s 调用异常: %s' % (srv_name, exc))
+            return None
+
+    def _call_interruptible(self, client, req, srv_name, timeout,
+                            cancel_client=None):
+        """等待长任务时响应用户中断，并先向底层发送安全取消。"""
+        if not client.wait_for_service(timeout_sec=2.0):
+            self._logger.warn('服务 %s 不在线' % srv_name)
+            return None
+        future = client.call_async(req)
+        deadline = time.monotonic() + timeout
+        while not future.done():
+            if self._interrupt_check():
+                if (cancel_client is not None
+                        and cancel_client.wait_for_service(timeout_sec=1.0)):
+                    cancel_client.call_async(Trigger.Request())
+                    self._logger.warn('%s 等待被中断，已请求安全取消' % srv_name)
+                raise WaitInterrupted()
+            if time.monotonic() >= deadline:
+                if (cancel_client is not None
+                        and cancel_client.wait_for_service(timeout_sec=1.0)):
+                    cancel_client.call_async(Trigger.Request())
+                client.remove_pending_request(future)
+                self._logger.warn('服务 %s 调用超时，已请求安全取消' % srv_name)
+                return None
+            time.sleep(0.2)
         try:
             return future.result()
         except Exception as exc:  # noqa: BLE001

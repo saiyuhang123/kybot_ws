@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """KYBOT 一键启动面板 (PyQt5, 单文件, 双击可运行)
 
-分组管理: 定位Nav / 机械臂抓取(灵巧手|二指, 单选互斥) / 语音调度 / 语音前端 / RViz
+分组管理: 定位Nav / 机械臂(二指|灵巧手|打磨头, 单选互斥) / 语音调度 / 语音前端 / RViz
 - 状态灯查 ROS 图(节点/服务在线), 不查进程
 - 停止杀整个进程组 (setsid + killpg), 杜绝 ros2 launch 留僵尸
 - 日志分组 tab, 每组上限 5000 行循环覆盖
@@ -66,12 +66,13 @@ SETUP_ENV = ('source /opt/ros/humble/setup.bash && '
 KYBOT_SETUP = SETUP_ENV + 'source %s/install/setup.bash && ' % KYBOT_WS
 ELITE_SETUP = SETUP_ENV + 'source %s/install/setup.bash && ' % ELITE_WS
 
-# ---------- 两种机械臂模式的 launch 配对 (按 A/B 流程文档) ----------
+# ---------- 三种互斥末端的 launch 配对 ----------
 MODES = {
     'twofinger': {
         'title': '二指',
         'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup '
-                   'trash_pipeline.launch.py use_ocr:=false use_rviz:=true',
+                   'trash_pipeline.launch.py use_ocr:=false use_rviz:=true '
+                   'end_effector_mode:=twofinger',
         'arm_cmds': [
             ('arm_main', '机械臂驱动(二指)',
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp_two_finger.launch.py '
@@ -84,24 +85,54 @@ MODES = {
     },
     'linkerhand': {
         'title': '灵巧手',
-        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py',
+        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py '
+                   'end_effector_mode:=linkerhand',
         'arm_cmds': [
             ('arm_main', '机械臂抓取(灵巧手)',
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp.launch.py' % ELITE_WS),
         ],
         'arm_grasp_delay_s': 0,
     },
+    'polish': {
+        'title': '打磨头',
+        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py '
+                   'end_effector_mode:=polish',
+        'arm_cmds': [
+            # 正式调度由启动面板下发命令：驱动使用 headless，不另起 RViz。
+            ('arm_driver', '机械臂驱动(打磨)',
+             ELITE_SETUP + 'ros2 launch my_elite_robot_cell_control '
+             'start_robot.launch.py headless_mode:=true launch_rviz:=false', 0),
+            ('arm_depth', '深度相机(打磨)',
+             ELITE_SETUP + 'ros2 launch percipio_camera '
+             'percipio_camera.launch.py', 6),
+            # 保留 elite_polish.launch.py 自带的交互命令终端，便于随时调试。
+            ('arm_polish', '打磨状态机',
+             ELITE_SETUP + 'ros2 launch elite_polish_app '
+             'elite_polish.launch.py', 10),
+            ('arm_bridge', '打磨调度桥接',
+             KYBOT_SETUP + 'ros2 run kybot_brain polish_bridge', 13),
+        ],
+        'arm_grasp_delay_s': 0,
+    },
 }
+
+MODE_ACTIONS = {
+    'twofinger': {'', 'grasp', 'place', 'home2', 'ready'},
+    'linkerhand': {'', 'grasp', 'place', 'home2', 'ready'},
+    'polish': {'', 'polish'},
+}
+ACTION_OPTIONS = [
+    ('无', ''), ('抓取 (grasp)', 'grasp'), ('放置 (place)', 'place'),
+    ('收臂 (home2)', 'home2'), ('预备 (ready)', 'ready'),
+    ('打磨：命令3视觉全流程 (polish)', 'polish'),
+]
 
 # 其他固定组
 FIXED_CMDS = {
     'brain': ('语音调度', KYBOT_SETUP + 'ros2 launch kybot_brain kybot_brain.launch.py'),
     'aiui': ('语音前端', KYBOT_SETUP + 'ros2 launch robot_aiui robot_aiui.launch.py'),
     'camera': ('海康相机', KYBOT_SETUP + 'ros2 run hk_camera hk_camera_node'),
-    'ocr': ('OCgs '
-     '-p port:=/dev/ttyIMU -p baudrate:=921600', 0),
-    'mapping_lidar' : ('建图-雷达',
-     SETUP_ENV + 'source %s/rslidar_ros2_wsR识别', KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
+    'ocr': ('OCR识别', KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
     'rviz': ('RViz', KYBOT_SETUP + 'rviz2'),
 }
 
@@ -112,7 +143,10 @@ DOC = '/home/nvidia/Documents'
 MAPPING_CMDS = [
     ('mapping_imu', '建图-IMU',
      SETUP_ENV + 'source %s/wit_ros2_imu_src/install/setup.bash && '
-     'ros2 run wit_ros2_imu wit_ros2_imu --ros-ar/install/setup.bash && '
+     'ros2 run wit_ros2_imu wit_ros2_imu --ros-args '
+     '-p port:=/dev/ttyIMU -p baudrate:=921600' % DOC, 0),
+    ('mapping_lidar', '建图-雷达',
+     SETUP_ENV + 'source %s/rslidar_ros2_ws/install/setup.bash && '
      'ros2 launch rslidar_sdk start.py' % DOC, 5),
     ('mapping_rs', '建图-点云转换',
      SETUP_ENV + 'source %s/rs_to_velodyne-master/install/setup.bash && '
@@ -128,7 +162,7 @@ MUTEX_WITH_MAPPING = ('nav', 'arm', 'brain', 'aiui')
 MISSION_STATE_NAMES = {
     0: '空闲', 1: '导航中', 2: '云台运动中', 3: '拍照中', 4: '已完成',
     5: '失败', 6: '已取消', 7: '目标确认中', 8: '逼近目标中', 9: '抓取中',
-    10: '放置中', 11: '退回中',
+    10: '放置中', 11: '退回中', 12: '打磨中',
 }
 MISSION_FREE_STATES = {0, 4, 5, 6}
 DEFAULT_WP_FILE = KYBOT_WS + '/location/location.yaml'  # 与 brain 共用
@@ -158,6 +192,7 @@ class RosProbe:
         self.node = None
         self.tf_buffer = None
         self.mission_status = None   # 最近一次 /mission/status
+        self.polish_status = ''      # 最近一次 /elite_polish/status
         self.capture_hook = None     # CAPTURING 状态跳变回调 (MainWindow 赋值)
         self.ocr_feedback_hook = None  # /ocr_feedback 话题回调
         self.on_error = None           # 探针异常上报 (MainWindow 赋值)
@@ -188,12 +223,17 @@ class RosProbe:
             self._report_error('TF 监听不可用(录点功能降级): %s' % exc)
         try:
             from std_srvs.srv import Trigger
+            from std_msgs.msg import String
             from hk_camera.msg import MissionStatus
             from hk_camera.srv import RunMission
             self.run_cli = self.node.create_client(RunMission, '/mission/run')
             self.cancel_cli = self.node.create_client(Trigger, '/mission/cancel')
+            self.polish_cancel_cli = self.node.create_client(
+                Trigger, '/elite_polish/cancel')
             self.node.create_subscription(
                 MissionStatus, '/mission/status', self._on_mission_status, 10)
+            self.node.create_subscription(
+                String, '/elite_polish/status', self._on_polish_status, 10)
             self.login_cli = self.node.create_client(Trigger, '/hk_camera/login')
             self.stream_cli = self.node.create_client(Trigger,
                                                       '/hk_camera/start_stream')
@@ -219,6 +259,9 @@ class RosProbe:
                 self.capture_hook()
             except Exception:
                 pass
+
+    def _on_polish_status(self, msg):
+        self.polish_status = msg.data.strip()
 
     def _on_ocr_feedback(self, msg):
         if self.ocr_feedback_hook is not None:
@@ -310,10 +353,27 @@ class Proc:
         self.qp.readyReadStandardOutput.connect(self._on_read)
         self.qp.finished.connect(self._on_finished)
         self._force_kill_timer = None
+        self._start_timer = None
+
+    def active(self):
+        return self.running() or (self._start_timer is not None
+                                  and self._start_timer.isActive())
+
+    def start_delayed(self, delay_ms):
+        if self.active():
+            return
+        self._start_timer = QTimer()
+        self._start_timer.setSingleShot(True)
+        self._start_timer.timeout.connect(self.start)
+        self._start_timer.start(delay_ms)
 
     def start(self):
         if self.running():
             return
+        if self._start_timer is not None:
+            self._start_timer.stop()
+            self._start_timer.deleteLater()
+            self._start_timer = None
         self._append('—— 启动: %s ——' % self.cmd.split('&&')[-1].strip()[:120])
         self.qp.start('setsid', ['bash', '-c', self.cmd])
         self._on_state_change()
@@ -322,6 +382,13 @@ class Proc:
         return self.qp.state() != QProcess.NotRunning
 
     def stop(self):
+        if self._start_timer is not None and self._start_timer.isActive():
+            self._start_timer.stop()
+            self._start_timer.deleteLater()
+            self._start_timer = None
+            self._append('—— 已取消延迟启动 ——')
+            self._on_state_change()
+            return
         if not self.running():
             return
         pid = int(self.qp.processId())
@@ -369,7 +436,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('KYBOT 启动面板')
         self.resize(1040, 660)
         self._procs = {}          # key -> Proc
-        self._mode = 'twofinger'  # 默认二指
+        self._mode = None         # 安全默认：必须由操作员确认实际安装末端
         self._seq_steps = []      # 一键启动的待执行步骤
         self._seq_wait_until = 0.0
         self._seq_ready_fn = None
@@ -378,10 +445,13 @@ class MainWindow(QMainWindow):
         self._ocr_inflight = False    # OCR 调用在飞标志 (防并发)
         self._prev_ms_state = None    # 任务状态边沿检测 (循环重发用)
         self._mission_from_here = False  # 当前任务是否由本页发起 (循环重发用)
+        self._pending_safe_stops = set()  # 等打磨安全收尾后再停止的进程组
+        self._safe_stop_deadline = 0.0
 
         self.probe = RosProbe()
         self._build_ui()
-        self._apply_mode('twofinger', force=True)
+        # 第一次 2s 状态刷新前也必须立即落实“未选择末端不可启动”。
+        self._refresh_buttons()
         # OCR: 巡检拍照跳变触发 + brain 的 /ocr_feedback, 统一进结果区
         self.probe.capture_hook = self._on_capture_edge
         self.probe.ocr_feedback_hook = self._on_ocr_feedback
@@ -421,24 +491,28 @@ class MainWindow(QMainWindow):
         mode_box = QGroupBox('机械臂模式 (同一末端, 互斥)')
         mh = QHBoxLayout(mode_box)
         self._radio_two = QRadioButton('二指')
-        self._radio_two.setChecked(True)
         self._radio_hand = QRadioButton('灵巧手')
+        self._radio_polish = QRadioButton('打磨头')
         self._mode_group = QButtonGroup(self)
         self._mode_group.addButton(self._radio_two)
         self._mode_group.addButton(self._radio_hand)
+        self._mode_group.addButton(self._radio_polish)
         mh.addWidget(self._radio_two)
         mh.addWidget(self._radio_hand)
+        mh.addWidget(self._radio_polish)
         left.addWidget(mode_box)
         self._radio_two.toggled.connect(
             lambda c: c and self._apply_mode('twofinger'))
         self._radio_hand.toggled.connect(
             lambda c: c and self._apply_mode('linkerhand'))
+        self._radio_polish.toggled.connect(
+            lambda c: c and self._apply_mode('polish'))
 
         # 分组行
         self._rows = {}
         groups_box = QGroupBox('功能组')
         gv = QVBoxLayout(groups_box)
-        for key, title in [('nav', '定位 + Nav'), ('arm', '机械臂抓取'),
+        for key, title in [('nav', '定位 + Nav'), ('arm', '机械臂(未选择末端)'),
                            ('brain', '语音调度'), ('aiui', '语音前端'),
                            ('camera', '海康相机'), ('ocr', 'OCR识别'),
                            ('rviz', 'RViz'), ('mapping', '建图 (FAST_LIO2)')]:
@@ -563,11 +637,9 @@ class MainWindow(QMainWindow):
         self._wp_capture = QCheckBox('到达后拍照')
         self._wp_action = QComboBox()
         # (显示名, extra_action 值); 与 executor 注册的动作一致
-        for label, val in [('无', ''), ('抓取 (grasp)', 'grasp'),
-                           ('放置 (place)', 'place'),
-                           ('收臂 (home2)', 'home2'),
-                           ('预备 (ready)', 'ready')]:
+        for label, val in ACTION_OPTIONS:
             self._wp_action.addItem(label, val)
+        self._wp_action.setEnabled(False)
         form.addRow('名称:', self._wp_name)
         form.addRow('预置位:', self._wp_ptz)
         form.addRow('拍照:', self._wp_capture)
@@ -642,7 +714,7 @@ class MainWindow(QMainWindow):
 
     # 点位动作的中文标签 (列表回显用)
     ACTION_LABELS = {'grasp': '抓取', 'place': '放置',
-                     'home2': '收臂', 'ready': '预备'}
+                     'home2': '收臂', 'ready': '预备', 'polish': '打磨'}
 
     def _wp_refresh_list(self):
         self._wp_list.blockSignals(True)
@@ -783,8 +855,24 @@ class MainWindow(QMainWindow):
         return mw
 
     def _mission_start(self):
+        if not self._require_mode('开始任务'):
+            return
         if not self._wps:
             self._sys_log('没有点位, 无法开始任务')
+            return
+        incompatible = [
+            '%d:%s' % (i + 1, wp.get('action', ''))
+            for i, wp in enumerate(self._wps)
+            if (wp.get('action', '') or '') not in MODE_ACTIONS[self._mode]
+        ]
+        if incompatible:
+            self._sys_log(
+                '拒绝任务: 点位动作与%s不兼容: %s'
+                % (MODES[self._mode]['title'], '、'.join(incompatible)))
+            QMessageBox.warning(
+                self, '末端动作不匹配',
+                '以下点位动作与当前安装的%s不兼容：\n%s'
+                % (MODES[self._mode]['title'], '、'.join(incompatible)))
             return
         if not self.probe.run_cli.wait_for_service(timeout_sec=2.0):
             self._sys_log('/mission/run 服务无应答(mission_executor 在运行吗?)')
@@ -883,6 +971,8 @@ class MainWindow(QMainWindow):
             proc.stop()
             self._sys_log('停止: %s' % self._deps[key]['title'])
         else:
+            if key == 'dep_exec' and not self._require_mode('启动任务调度'):
+                return
             if key == 'dep_ocr' and self.probe.has_node('ocr_node'):
                 self._sys_log('ocr_node 已在运行(可能由启动页启动), 不重复启动')
                 return
@@ -891,6 +981,8 @@ class MainWindow(QMainWindow):
                               % self._deps[key]['title'])
                 return
             _title, cmd = DEP_CMDS[key]
+            if key == 'dep_exec':
+                cmd += ' end_effector_mode:=%s' % self._mode
             self._start_proc(key, self._deps[key]['title'], cmd)
             self._sys_log('启动: %s' % self._deps[key]['title'])
             if key == 'dep_camera':
@@ -973,28 +1065,67 @@ class MainWindow(QMainWindow):
 
     # ---------- 模式 ----------
 
+    def _require_mode(self, action):
+        if self._mode in MODES:
+            return True
+        text = '请先人工确认并选择实际安装的末端（二指、灵巧手或打磨头）。'
+        self._sys_log('%s被阻止: 未选择末端' % action)
+        QMessageBox.warning(self, '未选择末端', text)
+        return False
+
+    def _sync_mode_radios(self):
+        """恢复单选状态；允许安全初始态一个都不选。"""
+        radios = {
+            'twofinger': self._radio_two,
+            'linkerhand': self._radio_hand,
+            'polish': self._radio_polish,
+        }
+        self._mode_group.setExclusive(False)
+        for key, radio in radios.items():
+            radio.blockSignals(True)
+            radio.setChecked(key == self._mode)
+            radio.blockSignals(False)
+        self._mode_group.setExclusive(True)
+
+    def _refresh_action_choices(self):
+        selected = self._wp_action.currentData()
+        allowed = MODE_ACTIONS.get(self._mode, {''})
+        self._wp_action.blockSignals(True)
+        self._wp_action.clear()
+        for label, value in ACTION_OPTIONS:
+            if value in allowed:
+                self._wp_action.addItem(label, value)
+        idx = self._wp_action.findData(selected)
+        self._wp_action.setCurrentIndex(idx if idx >= 0 else 0)
+        self._wp_action.setEnabled(self._mode in MODES)
+        self._wp_action.blockSignals(False)
+        self._wp_select(self._wp_list.currentRow())
+
     def _apply_mode(self, mode, force=False):
+        mission_busy = (self.probe.has_node('mission_executor') and
+                        self.probe.mission_status is not None and
+                        self.probe.mission_status.state not in MISSION_FREE_STATES)
         if not force and (self._group_running('nav')
-                          or self._group_running('arm')):
+                          or self._group_running('arm')
+                          or self._group_running('brain')
+                          or mission_busy):
             QMessageBox.information(
-                self, '模式锁定', '定位Nav 或机械臂正在运行, 请先停止再切换模式。')
-            # 回退单选
-            self._radio_two.blockSignals(True)
-            self._radio_hand.blockSignals(True)
-            (self._radio_two if self._mode == 'twofinger'
-             else self._radio_hand).setChecked(True)
-            self._radio_two.blockSignals(False)
-            self._radio_hand.blockSignals(False)
+                self, '模式锁定',
+                '定位Nav、机械臂、语音调度或任务正在运行，请先安全停止再切换末端。')
+            self._sync_mode_radios()
             return
         self._mode = mode
-        self._rows['arm']['title'] = '机械臂抓取(%s)' % MODES[mode]['title']
+        self._sync_mode_radios()
+        self._rows['arm']['title'] = '机械臂(%s)' % MODES[mode]['title']
         self._rows['arm']['name'].setText(self._rows['arm']['title'])
+        self._refresh_action_choices()
+        self._refresh_buttons()
         self._sys_log('当前模式: %s' % MODES[mode]['title'])
 
     # ---------- 进程组管理 ----------
 
     def _group_running(self, key):
-        return any(p.running() for k, p in self._procs.items()
+        return any(p.active() for k, p in self._procs.items()
                    if k == key or k.startswith(key + '_'))
 
     def _toggle_group(self, key):
@@ -1004,6 +1135,15 @@ class MainWindow(QMainWindow):
             self._start_group(key)
 
     def _start_group(self, key):
+        if key in ('nav', 'arm', 'brain') and not self._require_mode(
+                '启动%s' % self._rows[key]['title']):
+            return
+        if key == 'arm':
+            conflict = self._end_effector_software_conflict()
+            if conflict:
+                self._sys_log('机械臂启动被阻止: %s' % conflict)
+                QMessageBox.warning(self, '末端软件互斥', conflict)
+                return
         if key == 'camera':
             if self._group_running('nav'):
                 self._sys_log('"定位+Nav"组在运行, 其中已含海康相机, 不重复启动')
@@ -1058,18 +1198,22 @@ class MainWindow(QMainWindow):
             self._ocr_post_start()
 
     def _group_cmds(self, key):
-        mode = MODES[self._mode]
         if key == 'nav':
+            mode = MODES[self._mode]
             return [('nav', '定位Nav', mode['nav_cmd'])]
         if key == 'arm':
+            mode = MODES[self._mode]
             return mode['arm_cmds']
+        if key == 'brain':
+            return [('brain', '语音调度', FIXED_CMDS['brain'][1]
+                     + ' end_effector_mode:=%s' % self._mode)]
         if key == 'mapping':
             return MAPPING_CMDS
         title, cmd = FIXED_CMDS[key]
         return [(key, title, cmd)]
 
     def _start_proc(self, pkey, title, cmd, delay_s=0):
-        if pkey in self._procs and self._procs[pkey].running():
+        if pkey in self._procs and self._procs[pkey].active():
             return
         if pkey not in self._logs:
             tab = self._add_log_tab(pkey, title)
@@ -1087,22 +1231,84 @@ class MainWindow(QMainWindow):
         self._procs[pkey] = proc
         if delay_s > 0:
             self._sys_log('%s 延迟 %ds 启动...' % (title, delay_s))
-            QTimer.singleShot(delay_s * 1000, proc.start)
+            proc.start_delayed(delay_s * 1000)
         else:
             proc.start()
         self._refresh_buttons()
 
     def _stop_group(self, key):
+        if (self._mode == 'polish' and key in ('nav', 'arm')
+                and self._polish_busy()):
+            self._request_polish_safe_stop({key})
+            return
+        self._stop_group_now(key)
+
+    def _stop_group_now(self, key):
         for k, p in self._procs.items():
-            if (k == key or k.startswith(key + '_')) and p.running():
+            if (k == key or k.startswith(key + '_')) and p.active():
                 p.stop()
         self._sys_log('停止组: %s' % self._rows[key]['title'])
         self._sweep_group(key)
 
+    def _polish_busy(self):
+        status = getattr(self.probe, 'polish_status', '')
+        phase = status.split(':', 1)[0]
+        if phase in ('RUNNING', 'CANCELING', 'HOMING'):
+            return True
+        if phase in ('IDLE', 'COMPLETED', 'FAILED', 'CANCELED'):
+            return False
+        mission = self.probe.mission_status
+        return mission is not None and mission.state == 12
+
+    def _request_polish_safe_stop(self, groups):
+        """先请求关磨头/退力控/退刀/Home2，确认终态后才杀进程。"""
+        self._pending_safe_stops.update(groups)
+        self._safe_stop_deadline = max(
+            self._safe_stop_deadline, time.monotonic() + 120.0)
+        try:
+            from std_srvs.srv import Trigger
+            if self.probe.cancel_cli.service_is_ready():
+                self.probe.cancel_cli.call_async(Trigger.Request())
+            if self.probe.polish_cancel_cli.service_is_ready():
+                self.probe.polish_cancel_cli.call_async(Trigger.Request())
+        except Exception as exc:
+            self._sys_log('请求打磨安全取消异常: %s' % exc)
+        self._status_label.setText('正在安全停止打磨：关磨头→退力控→退刀→Home2')
+        self._sys_log('已请求安全取消，确认回到 Home2 后再停止相关进程')
+        QTimer.singleShot(1000, self._poll_polish_safe_stop)
+
+    def _poll_polish_safe_stop(self):
+        if not self._pending_safe_stops:
+            return
+        if not self._polish_busy():
+            groups = list(self._pending_safe_stops)
+            self._pending_safe_stops.clear()
+            self._safe_stop_deadline = 0.0
+            for key in groups:
+                self._stop_group_now(key)
+            self._status_label.setText('打磨已安全收尾，相关进程已停止')
+            return
+        if time.monotonic() >= self._safe_stop_deadline:
+            groups = '、'.join(sorted(self._pending_safe_stops))
+            self._pending_safe_stops.clear()
+            self._safe_stop_deadline = 0.0
+            text = ('120秒内未确认打磨安全收尾，未强杀%s；请检查打磨日志和机械臂。'
+                    % groups)
+            self._sys_log(text)
+            self._status_label.setText(text)
+            QMessageBox.critical(self, '安全停止未确认', text)
+            return
+        QTimer.singleShot(1000, self._poll_polish_safe_stop)
+
     # 脱离进程组的"弹窗进程"特征 (gnome-terminal 由系统服务代管,
     # 不在 launch 的进程组里, killpg 够不到, 按命令行特征精准清理)
     SWEEP_PATTERNS = {
-        'arm': [r'yolo_grasp[.]py'],
+        'arm': [r'yolo_grasp[.]py',
+                r'ysURForceAppContro[l]',
+                r'ysAppComman[d]',
+                r'elite_joint_trajectory_bridg[e]',
+                r'depth_board_detect_nod[e]',
+                r'percipio_camer[a]'],
         'nav': [r'wit_ros2_im[u]',           # IMU 终端窗
                 r'velodyne_localizatio[n]',  # FAST_LIO 定位终端窗
                 r'mission_executor[.]launch',  # mission_executor 终端窗
@@ -1141,12 +1347,19 @@ class MainWindow(QMainWindow):
 
     def _stop_all(self):
         self._seq_steps = []
+        safe_polish = self._mode == 'polish' and self._polish_busy()
         for p in self._procs.values():
-            if p.running():
+            if p.active() and not (safe_polish and
+                                    (p.key == 'arm' or p.key.startswith('arm_'))):
                 p.stop()
         for key in self.SWEEP_PATTERNS:
+            if safe_polish and key == 'arm':
+                continue
             self._sweep_group(key)
-        self._status_label.setText('已全部停止')
+        if safe_polish:
+            self._request_polish_safe_stop({'arm'})
+        else:
+            self._status_label.setText('已全部停止')
 
     # ---------- CAN ----------
 
@@ -1189,17 +1402,49 @@ class MainWindow(QMainWindow):
 
     # ---------- 一键启动 ----------
 
+    def _arm_online(self):
+        if self._mode == 'polish':
+            return (self.probe.has_node('ysURForceAppControl')
+                    and self.probe.has_service('/elite_polish/run')
+                    and self.probe.has_service('/force_mode_server/set_force_mode')
+                    and self.probe.has_publisher('/elite_forceapp_cmd_result')
+                    and self.probe.has_publisher('/camera/depth/image_raw'))
+        if self._mode in ('twofinger', 'linkerhand'):
+            return (self.probe.has_node('robot_cartesian_control')
+                    and self.probe.has_service('/yolo_grasp/grasp_hold'))
+        return False
+
+    def _end_effector_software_conflict(self):
+        """阻止不同末端的软件栈同时在线，作为物理互斥的第二道门。"""
+        if self._mode == 'polish':
+            if self.probe.has_service('/yolo_grasp/grasp_hold'):
+                return '检测到抓取服务仍在线，请先停止二指/灵巧手软件栈。'
+        elif self._mode in ('twofinger', 'linkerhand'):
+            if (self.probe.has_service('/elite_polish/run')
+                    or self.probe.has_node('ysURForceAppControl')):
+                return '检测到打磨软件栈仍在线，请先安全停止打磨系统。'
+        return ''
+
     def _start_all(self):
         if self._seq_steps:
             self._status_label.setText('一键启动已在进行中')
             return
+        if not self._require_mode('一键全部启动'):
+            return
+        conflict = self._end_effector_software_conflict()
+        if conflict:
+            self._sys_log('一键启动被阻止: %s' % conflict)
+            QMessageBox.warning(self, '末端软件互斥', conflict)
+            return
+        arm_title = '启动 机械臂(%s)' % MODES[self._mode]['title']
+        arm_timeout = 180 if self._mode == 'polish' else 90
         steps = [
             ('配置 CAN', self._setup_can, None, 0),
             ('启动 定位+Nav', lambda: self._start_group('nav'),
              lambda: self.probe.has_publisher('/mission/status')
              or self.probe.has_node('mission_executor'), 60),
-            ('启动 机械臂抓取', lambda: self._start_group('arm'),
-             lambda: self.probe.has_service('/yolo_grasp/grasp_hold'), 90),
+            (arm_title, lambda: self._start_group('arm'),
+             self._arm_online, arm_timeout),
             ('启动 语音调度', lambda: self._start_group('brain'),
              lambda: self.probe.has_node('brain_node'), 30),
             ('启动 语音前端', lambda: self._start_group('aiui'),
@@ -1225,8 +1470,12 @@ class MainWindow(QMainWindow):
                 self._sys_log('就绪 ✓')
                 self._seq_ready_fn = None
             elif time.time() > self._seq_wait_until:
-                self._sys_log('等待超时, 继续下一步(请检查该组日志)')
+                self._sys_log('等待超时，一键启动已中止，请检查该组日志')
                 self._seq_ready_fn = None
+                self._seq_steps = []
+                self._seq_timer.stop()
+                self._status_label.setText('一键启动失败：组件等待超时')
+                return
             else:
                 return
         if not self._seq_steps:
@@ -1250,10 +1499,21 @@ class MainWindow(QMainWindow):
         # 建图互斥: 建图运行时, 导航/机械臂/语音/一键启动/模式切换全部禁用
         mapping_on = self._group_running('mapping')
         for k in MUTEX_WITH_MAPPING:
-            self._rows[k]['btn'].setEnabled(not mapping_on)
-        self._btn_all.setEnabled(not mapping_on)
-        self._radio_two.setEnabled(not mapping_on)
-        self._radio_hand.setEnabled(not mapping_on)
+            needs_mode = k in ('nav', 'arm', 'brain')
+            self._rows[k]['btn'].setEnabled(
+                not mapping_on and (not needs_mode or self._mode in MODES
+                                    or self._group_running(k)))
+        mission_busy = (self.probe.has_node('mission_executor') and
+                        self.probe.mission_status is not None and
+                        self.probe.mission_status.state not in MISSION_FREE_STATES)
+        mode_locked = (mapping_on or mission_busy
+                       or self._group_running('nav')
+                       or self._group_running('arm')
+                       or self._group_running('brain'))
+        self._btn_all.setEnabled(not mapping_on and self._mode in MODES)
+        self._radio_two.setEnabled(not mode_locked)
+        self._radio_hand.setEnabled(not mode_locked)
+        self._radio_polish.setEnabled(not mode_locked)
         # 保存建图: 只有 /map_save 服务在线才可点
         try:
             self._btn_save_map.setEnabled(self.probe.has_service('/map_save'))
@@ -1265,7 +1525,7 @@ class MainWindow(QMainWindow):
         checks = {
             # 一律用节点名判活: 服务/话题注册在进程被杀后会残留, 节点名清得快
             'nav': lambda: self.probe.has_node('mission_executor'),
-            'arm': lambda: self.probe.has_node('robot_cartesian_control'),
+            'arm': self._arm_online,
             'brain': lambda: self.probe.has_node('brain_node'),
             'aiui': lambda: self.probe.has_node('aiui_ros_node'),
             'camera': lambda: self.probe.has_node('hk_camera_node'),
@@ -1300,7 +1560,8 @@ class MainWindow(QMainWindow):
         self._mission['status'].setText(txt)
         online = self.probe.has_node('mission_executor')
         busy = s is not None and s.state not in MISSION_FREE_STATES
-        self._mission['btn_start'].setEnabled(online and not busy)
+        self._mission['btn_start'].setEnabled(
+            online and not busy and self._mode in MODES)
 
         # 循环重发: 一轮 COMPLETED 边沿 → 5s 后自动重发; 失败/取消退出循环
         prev_state = self._prev_ms_state
@@ -1325,12 +1586,21 @@ class MainWindow(QMainWindow):
             dep['status'].setText(
                 '在线' if online else ('启动中' if running else '离线'))
             dep['btn'].setText('停止' if running else '启动')
-            dep['btn'].setEnabled(running or not nav_on)
+            mode_ok = key != 'dep_exec' or self._mode in MODES
+            dep['btn'].setEnabled(running or (not nav_on and mode_ok))
 
     # ---------- 关闭 ----------
 
     def closeEvent(self, event):
-        running = [p.title for p in self._procs.values() if p.running()]
+        if self._mode == 'polish' and self._polish_busy():
+            self._request_polish_safe_stop({'nav', 'arm'})
+            QMessageBox.warning(
+                self, '正在安全停止打磨',
+                '当前打磨尚未安全收尾，已请求取消。\n'
+                '确认回到 Home2 后请再次关闭面板。')
+            event.ignore()
+            return
+        running = [p.title for p in self._procs.values() if p.active()]
         if running:
             ret = QMessageBox.question(
                 self, '退出确认',

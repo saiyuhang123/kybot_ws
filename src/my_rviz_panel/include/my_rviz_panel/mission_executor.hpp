@@ -67,6 +67,9 @@ public:
     /// 注册扩展动作处理器
     void registerAction(const std::string& name, ActionHandler handler);
 
+    /// 保存动作服务返回的详细结果，供任务状态透传
+    void setActionDetail(const std::string& detail);
+
     bool driveDistance(double distance, double speed, bool forward,
                        double& traveled_distance);
 
@@ -121,6 +124,7 @@ private:
 
     // ---- 扩展动作 ----
     std::map<std::string, ActionHandler> action_handlers_;
+    std::string action_detail_;
 
     // ---- ROS 接口 ----
     rclcpp::Service<hk_camera::srv::RunMission>::SharedPtr run_mission_srv_;
@@ -169,6 +173,12 @@ private:
     // 抓取/放置 (M3 自动捡瓶)
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr grasp_client_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr place_client_;
+    // 打磨服务桥接（仅 end_effector_mode=polish 时使用）
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr polish_run_client_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr polish_cancel_client_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr polish_home_client_;
+
+    std::string end_effector_mode_{"twofinger"};
 };
 
 } // namespace my_rviz_panel

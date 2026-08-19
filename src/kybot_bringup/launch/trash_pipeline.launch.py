@@ -21,6 +21,7 @@ trash_pipeline.launch.py
     use_ocr:=false       # 是否启动海康相机 + OCR 识别
     use_rviz:=true       # 是否启动 RViz 面板
     rviz_config:=/home/nvidia/.rviz2/default.rviz
+    end_effector_mode:=twofinger  # 实际安装末端
 """
 
 import os
@@ -61,6 +62,11 @@ def generate_launch_description():
             "rviz_config", default_value="/home/nvidia/.rviz2/default.rviz",
             description="RViz 配置文件路径",
         ),
+        DeclareLaunchArgument(
+            "end_effector_mode", default_value="twofinger",
+            choices=["twofinger", "linkerhand", "polish"],
+            description="实际安装末端: twofinger/linkerhand/polish",
+        ),
     ]
 
     setup_can = LaunchConfiguration("setup_can")
@@ -68,6 +74,7 @@ def generate_launch_description():
     use_ocr = LaunchConfiguration("use_ocr")
     use_rviz = LaunchConfiguration("use_rviz")
     rviz_config = LaunchConfiguration("rviz_config")
+    end_effector_mode = LaunchConfiguration("end_effector_mode")
 
     # ============================================================
     # 1. 底盘全系统（内部已按 0~26s 分步启动，Nav2/mission_executor
@@ -86,6 +93,7 @@ def generate_launch_description():
             "setup_can": setup_can,
             "use_sim_time": use_sim_time,
             "use_ocr": use_ocr,
+            "end_effector_mode": end_effector_mode,
         }.items(),
     )
 

@@ -10,5 +10,7 @@ brain_node:
     service_timeout_sec: 10.0
     nav_timeout_sec: 300.0    # navigate_and_wait 等导航终态的上限
     arm_timeout_sec: 130.0    # 机械臂 Trigger 调用上限 (elite 侧最长约 120s)
+    polish_timeout_sec: 1020.0 # 含底层900s工艺超时后的安全取消收尾等待
+    end_effector_mode: "twofinger"  # launch 面板会按实际选择覆盖
     history_max: 20
     audit_file: "~/.kybot_brain/audit.jsonl"

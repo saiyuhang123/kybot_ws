@@ -26,7 +26,8 @@ from geometry_msgs.msg import Twist
 
 from hk_camera.msg import MissionStatus
 from .llm_client import LLMClient, LLMError
-from .tools import STATE_NAMES, TOOL_SCHEMAS, ToolExecutor, WaitInterrupted
+from .tools import (STATE_NAMES, ToolExecutor, WaitInterrupted,
+                    tool_schemas_for_mode)
 from .waypoints import load_waypoints
 
 MAX_LLM_ROUNDS = 8  # 与 agent_bridge.cpp 一致
@@ -37,6 +38,9 @@ TERMINAL_STATES = {
 }
 
 SYSTEM_PROMPT_TMPL = """你是巡检机器人 KYBOT 的调度助手, 通过调用工具控制机器人。
+当前实际安装末端: {mode_title}。
+{mode_rules}
+
 当前点位白名单(名称 — 该点 yaml 预配置的动作):
 {waypoint_lines}
 
@@ -44,10 +48,7 @@ SYSTEM_PROMPT_TMPL = """你是巡检机器人 KYBOT 的调度助手, 通过调�
 1. 把用户的复合指令拆成有序步骤, 一步一步调用工具。每个工具都返回真实执行结果,
    必须看上一步结果再决定下一步: 失败就停止后续步骤并向用户说明原因, 不要硬往下走。
 2. 导航用 navigate_and_wait: 纯导航, 会等到真正到达/失败才返回(不触发点位yaml
-   预配置的拍照/抓取动作, 那些由你按需单独调用: grasp 抓取、place 放置、
-   capture_photo 拍照、arm_home 收臂、arm_ready 预备)。
-   抓取前必须先调 approach 慢速逼近到目标跟前(雷达自动停车), 再调 grasp;
-   grasp 结束后会自动后退到导航位置, 不用你额外处理。
+   预配置动作, 那些由你按需单独调用)。
 3. 只有"纯多点跑圈巡检、途中不需要看结果做决定"时才用 run_route 一次下发;
    单点快速前往(不等结果)才用 goto_waypoint。
 4. "回来/返回"的目标也必须是白名单里的点位名; 白名单中没有名字含
@@ -59,7 +60,7 @@ SYSTEM_PROMPT_TMPL = """你是巡检机器人 KYBOT 的调度助手, 通过调�
    机器人状态的工具(导航/取消/抓取等), 用一句话询问或回应即可。
 8. 工具返回互相矛盾(如取消说没任务、状态却说运行中)时, 不要反复重试同一工具,
    如实告诉用户系统状态异常、建议检查底层, 然后结束本轮。
-7. 全部用简洁的中文口语回答, 一两句话说完。"""
+9. 全部用简洁的中文口语回答, 一两句话说完。"""
 
 
 class BrainNode(Node):
@@ -97,6 +98,8 @@ class BrainNode(Node):
             service_timeout_sec=self._service_timeout,
             nav_timeout_sec=self._nav_timeout,
             arm_timeout_sec=self._arm_timeout,
+            polish_timeout_sec=self._polish_timeout,
+            end_effector_mode=self._end_effector_mode,
             interrupt_check=self._interrupt.is_set,
             set_waiting=self._set_waiting,
             odom_provider=self._get_odom,
@@ -106,6 +109,7 @@ class BrainNode(Node):
             approach_stop_distance=self._approach_stop_distance,
             approach_max_distance=self._approach_max_distance,
             audit_file=self._audit_file)
+        self._tool_schemas = tool_schemas_for_mode(self._end_effector_mode)
 
         # ROS 接线
         self._reply_pub = self.create_publisher(String, '/brain_reply', 10)
@@ -122,8 +126,8 @@ class BrainNode(Node):
         self._worker.start()
 
         self.get_logger().info(
-            'kybot_brain 就绪: 模型=%s, 点位文件=%s, 发 /brain_text 即可对话'
-            % (self._model, self._waypoints_file))
+            'kybot_brain 就绪: 模型=%s, 末端=%s, 点位文件=%s, 发 /brain_text 即可对话'
+            % (self._model, self._end_effector_mode, self._waypoints_file))
 
     # ---------- 参数 ----------
 
@@ -137,6 +141,8 @@ class BrainNode(Node):
         self.declare_parameter('service_timeout_sec', 10.0)
         self.declare_parameter('nav_timeout_sec', 300.0)   # 导航等终态上限
         self.declare_parameter('arm_timeout_sec', 130.0)   # 机械臂调用上限
+        self.declare_parameter('polish_timeout_sec', 1020.0)
+        self.declare_parameter('end_effector_mode', 'twofinger')
         # approach 逼近参数, 与 mission_executor 的 driveDistance 一致
         self.declare_parameter('approach_speed', 0.1)          # m/s
         self.declare_parameter('approach_stop_distance', 0.7)  # 前方障碍早停 (m)
@@ -156,6 +162,11 @@ class BrainNode(Node):
         self._service_timeout = p('service_timeout_sec').value
         self._nav_timeout = p('nav_timeout_sec').value
         self._arm_timeout = p('arm_timeout_sec').value
+        self._polish_timeout = p('polish_timeout_sec').value
+        self._end_effector_mode = str(p('end_effector_mode').value).strip()
+        if self._end_effector_mode not in ('twofinger', 'linkerhand', 'polish'):
+            raise ValueError('非法 end_effector_mode: %s'
+                             % self._end_effector_mode)
         self._approach_speed = p('approach_speed').value
         self._approach_stop_distance = p('approach_stop_distance').value
         self._approach_max_distance = p('approach_max_distance').value
@@ -170,7 +181,21 @@ class BrainNode(Node):
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warn('点位文件读取失败: %s' % exc)
             lines = '  (点位文件读取失败)'
-        return SYSTEM_PROMPT_TMPL.format(waypoint_lines=lines)
+        if self._end_effector_mode == 'polish':
+            mode_title = '打磨头'
+            mode_rules = (
+                '末端互斥硬约束：当前禁止抓取、放置、张手、抓取逼近和预备位工具。'
+                '需要打磨时先 navigate_and_wait 到点，再调用 polish；polish 本身就是命令3，'
+                '已经包含拍摄位→深度识别→接触→打磨→Home2，不要拆开或额外调用 approach。')
+        else:
+            mode_title = ('二指夹爪' if self._end_effector_mode == 'twofinger'
+                          else '灵巧手')
+            mode_rules = (
+                '末端互斥硬约束：当前禁止打磨。抓取前必须先调 approach 慢速逼近到目标跟前，'
+                '再调 grasp；grasp 结束后会自动后退到导航位置。')
+        return SYSTEM_PROMPT_TMPL.format(
+            waypoint_lines=lines, mode_title=mode_title,
+            mode_rules=mode_rules)
 
     # ---------- ROS 回调 ----------
 
@@ -256,7 +281,7 @@ class BrainNode(Node):
             with self._lock:
                 snapshot = self._ordered_snapshot_locked()
             try:
-                message = self._llm.chat(snapshot, TOOL_SCHEMAS)
+                message = self._llm.chat(snapshot, self._tool_schemas)
             except LLMError as exc:
                 self._announce('大模型调用失败: %s' % exc)
                 return

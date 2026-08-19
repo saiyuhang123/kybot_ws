@@ -13,6 +13,7 @@ mission_executor、Nav2、IMU、FAST_LIO 会自动在独立终端窗口运行。
     setup_can:=true      # 是否需要配置 CAN 总线 (默认 true，需免密 sudo)
     use_rviz:=false      # 是否启动 RViz (默认 false)
     use_sim_time:=false  # 是否使用仿真时间 (默认 false)
+    end_effector_mode:=twofinger  # twofinger/linkerhand/polish
 """
 
 from launch import LaunchDescription
@@ -53,7 +54,13 @@ def generate_launch_description():
         "use_ocr", default_value="false",
         description="是否启动海康相机 + OCR 识别"
     )
+    declare_end_effector_mode = DeclareLaunchArgument(
+        "end_effector_mode", default_value="twofinger",
+        choices=["twofinger", "linkerhand", "polish"],
+        description="实际安装末端: twofinger/linkerhand/polish"
+    )
     use_sim_time = LaunchConfiguration("use_sim_time")
+    end_effector_mode = LaunchConfiguration("end_effector_mode")
 
     # ========================
     # 0. CAN 总线配置 (需要 sudo)
@@ -269,9 +276,9 @@ def generate_launch_description():
         cmd=[
             "gnome-terminal", "--title=MissionExecutor", "--",
             "bash", "-c",
-            "source /home/nvidia/kybot_ws/install/setup.bash && "
-            "ros2 launch my_rviz_panel mission_executor.launch.py; "
-            "exec bash"
+            ["source /home/nvidia/kybot_ws/install/setup.bash && "
+             "ros2 launch my_rviz_panel mission_executor.launch.py "
+             "end_effector_mode:=", end_effector_mode, "; exec bash"]
         ],
         name="mission_executor_terminal",
     )
@@ -303,6 +310,7 @@ def generate_launch_description():
     ld.add_action(declare_use_rviz)
     ld.add_action(declare_use_sim_time)
     ld.add_action(declare_use_ocr)
+    ld.add_action(declare_end_effector_mode)
 
     # CAN 配置
     ld.add_action(can_setup_bitrate)

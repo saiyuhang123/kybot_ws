@@ -11,6 +11,7 @@ uint8 STATE_APPROACHING=8
 uint8 STATE_GRASPING=9
 uint8 STATE_PLACING=10
 uint8 STATE_RETREATING=11
+uint8 STATE_POLISHING=12
 
 uint8 state            # 当前状态
 uint8 current_index    # 当前执行到第几个点 (0-based)

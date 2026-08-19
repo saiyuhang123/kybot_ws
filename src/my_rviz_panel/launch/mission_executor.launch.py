@@ -1,9 +1,16 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    end_effector_mode = LaunchConfiguration('end_effector_mode')
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'end_effector_mode', default_value='twofinger',
+            choices=['twofinger', 'linkerhand', 'polish'],
+            description='实际安装末端: twofinger/linkerhand/polish'),
         Node(
             package='my_rviz_panel',
             executable='mission_executor',
@@ -27,6 +34,11 @@ def generate_launch_description():
                 'bottle_candidate_frames': 3,
                 'use_map_goal_approach': True,
                 'approach_goal_timeout': 3.0,
+                # 物理末端模式硬门：不允许打磨头和夹爪动作串用
+                'end_effector_mode': end_effector_mode,
+                # 命令3含视觉、接触搜索和整段打磨，明显长于普通抓取
+                # 桥接内部 900s 工艺超时后还会最多等 90s 安全取消收尾。
+                'polish_timeout_sec': 1020.0,
             }],
         ),
     ])

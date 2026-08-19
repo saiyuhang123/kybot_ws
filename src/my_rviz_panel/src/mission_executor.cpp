@@ -9,6 +9,22 @@ using namespace std::placeholders;
 
 namespace my_rviz_panel {
 
+namespace {
+
+bool actionAllowedForMode(const std::string& mode, const std::string& action)
+{
+    if (action.empty() || action == "log")
+        return true;
+    if (mode == "polish")
+        return action == "polish";
+    if (mode == "twofinger" || mode == "linkerhand")
+        return action == "grasp" || action == "place" ||
+               action == "home2" || action == "ready";
+    return false;
+}
+
+}  // namespace
+
 MissionExecutor::MissionExecutor(const std::string& name)
     : Node(name)
 {
@@ -25,6 +41,17 @@ MissionExecutor::MissionExecutor(const std::string& name)
     declare_parameter("bottle_candidate_frames", 3);
     declare_parameter("use_map_goal_approach", true);
     declare_parameter("approach_goal_timeout", 3.0);
+    end_effector_mode_ = declare_parameter<std::string>(
+        "end_effector_mode", "twofinger");
+    declare_parameter("polish_timeout_sec", 1020.0);
+    if (end_effector_mode_ != "twofinger" &&
+        end_effector_mode_ != "linkerhand" &&
+        end_effector_mode_ != "polish")
+    {
+        RCLCPP_ERROR(get_logger(),
+                     "Invalid end_effector_mode='%s'; all end-effector actions will be rejected",
+                     end_effector_mode_.c_str());
+    }
 
     setupServices();
     setupClients();
@@ -46,7 +73,8 @@ MissionExecutor::MissionExecutor(const std::string& name)
             "/trash/approach_goal", 10,
             std::bind(&MissionExecutor::onApproachGoal, this, _1));
 
-    RCLCPP_INFO(get_logger(), "MissionExecutor ready (M3)");
+    RCLCPP_INFO(get_logger(), "MissionExecutor ready (M3), end effector=%s",
+                end_effector_mode_.c_str());
 }
 
 MissionExecutor::~MissionExecutor()
@@ -61,6 +89,11 @@ void MissionExecutor::registerAction(const std::string& name, ActionHandler hand
 {
     action_handlers_[name] = std::move(handler);
     RCLCPP_INFO(get_logger(), "Registered action handler: '%s'", name.c_str());
+}
+
+void MissionExecutor::setActionDetail(const std::string& detail)
+{
+    action_detail_ = detail;
 }
 
 // ============================================================
@@ -102,6 +135,12 @@ void MissionExecutor::setupClients()
         "/yolo_grasp/grasp_hold");
     place_client_ = create_client<std_srvs::srv::Trigger>(
         "/yolo_grasp/place");
+    polish_run_client_ = create_client<std_srvs::srv::Trigger>(
+        "/elite_polish/run");
+    polish_cancel_client_ = create_client<std_srvs::srv::Trigger>(
+        "/elite_polish/cancel");
+    polish_home_client_ = create_client<std_srvs::srv::Trigger>(
+        "/elite_polish/home");
 }
 
 void MissionExecutor::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -408,6 +447,29 @@ void MissionExecutor::onRunMission(
         return;
     }
 
+    if (req->waypoints.empty())
+    {
+        res->accepted = false;
+        res->message = "Mission has no waypoints";
+        return;
+    }
+
+    // 在底盘移动前完成整条路线的末端动作预检，防止装着打磨头却执行抓取，
+    // 或装着夹爪却在到点后才发现 polish 不可用。
+    for (size_t i = 0; i < req->waypoints.size(); ++i)
+    {
+        const auto& action = req->waypoints[i].extra_action;
+        if (!actionAllowedForMode(end_effector_mode_, action))
+        {
+            res->accepted = false;
+            res->message = "Waypoint " + std::to_string(i + 1) +
+                " action '" + action + "' is incompatible with end effector '" +
+                end_effector_mode_ + "'";
+            RCLCPP_ERROR(get_logger(), "%s", res->message.c_str());
+            return;
+        }
+    }
+
     waypoints_ = req->waypoints;
     mission_cancel_ = false;
     mission_running_ = true;
@@ -438,6 +500,13 @@ void MissionExecutor::onCancelMission(
     // 取消当前导航
     if (nav_client_)
         nav_client_->async_cancel_all_goals();
+    if (end_effector_mode_ == "polish" &&
+        polish_cancel_client_ && polish_cancel_client_->service_is_ready())
+    {
+        polish_cancel_client_->async_send_request(
+            std::make_shared<std_srvs::srv::Trigger::Request>());
+        RCLCPP_WARN(get_logger(), "Requested safe polish cancel");
+    }
 
     res->success = true;
     res->message = "Mission cancel requested";
@@ -451,6 +520,7 @@ void MissionExecutor::onCancelMission(
 void MissionExecutor::executeMission()
 {
     const size_t total = waypoints_.size();
+    bool mission_failed = false;
 
     // ---- 自动登录相机 ----
     RCLCPP_INFO(get_logger(), "Checking camera login...");
@@ -471,26 +541,66 @@ void MissionExecutor::executeMission()
     }
 
     // ---- 任务开始: 机械臂收拢到 Home2 (导航期间安全姿态, 无机械臂时跳过) ----
-    if (arm_home2_client_->wait_for_service(2s))
+    auto stow_client = end_effector_mode_ == "polish"
+        ? polish_home_client_ : arm_home2_client_;
+    const bool stow_required = end_effector_mode_ == "polish";
+    const auto stow_timeout = stow_required ? 90s : 30s;
+    const char* stow_name = end_effector_mode_ == "polish"
+        ? "/elite_polish/home" : "/yolo_grasp/home2";
+    if (stow_client->wait_for_service(2s))
     {
-        RCLCPP_INFO(get_logger(), "Stowing arm to Home2 before navigation...");
+        RCLCPP_INFO(get_logger(), "Stowing arm to Home2 via %s before navigation...",
+                    stow_name);
         auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
-        auto future = arm_home2_client_->async_send_request(req);
-        // home2 服务同步执行, 返回时已到位 (movej 约几秒, 超时给 30s)
-        if (future.wait_for(30s) == std::future_status::ready)
+        auto future = stow_client->async_send_request(req);
+        // 服务同步执行，返回时才算已到 Home2；打磨系统启动较慢，给足 90s。
+        if (future.wait_for(stow_timeout) == std::future_status::ready)
         {
             auto res = future.get();
             RCLCPP_INFO(get_logger(), "Arm Home2: %s (success=%d)",
                         res->message.c_str(), res->success);
+            if (stow_required && !res->success && !mission_cancel_)
+            {
+                publishStatus(hk_camera::msg::MissionStatus::STATE_FAILED, 0,
+                              "Polish arm failed to reach Home2; mission not started");
+                mission_failed = true;
+            }
         }
         else
         {
-            RCLCPP_WARN(get_logger(), "Arm Home2 timeout, continuing anyway");
+            RCLCPP_ERROR(get_logger(), "Arm Home2 timeout via %s", stow_name);
+            if (stow_required && !mission_cancel_)
+            {
+                publishStatus(hk_camera::msg::MissionStatus::STATE_FAILED, 0,
+                              "Polish arm Home2 timeout; mission not started");
+                mission_failed = true;
+            }
         }
     }
     else
     {
-        RCLCPP_INFO(get_logger(), "Arm home2 service not available, skipping stow");
+        if (stow_required)
+        {
+            RCLCPP_ERROR(get_logger(), "%s not available; mission not started", stow_name);
+            publishStatus(hk_camera::msg::MissionStatus::STATE_FAILED, 0,
+                          "Polish arm service unavailable; mission not started");
+            mission_failed = true;
+        }
+        else
+        {
+            RCLCPP_INFO(get_logger(), "Arm home2 service not available, skipping stow");
+        }
+    }
+
+    if (mission_failed || mission_cancel_)
+    {
+        if (mission_cancel_)
+        {
+            publishStatus(hk_camera::msg::MissionStatus::STATE_CANCELED, 0,
+                          "Mission canceled before navigation");
+        }
+        mission_running_ = false;
+        return;
     }
 
     size_t current_index = 0;
@@ -561,6 +671,7 @@ void MissionExecutor::executeMission()
             snprintf(buf, sizeof(buf), "Navigation failed at point %zu", i + 1);
             publishStatus(hk_camera::msg::MissionStatus::STATE_FAILED, i, buf);
             RCLCPP_ERROR(get_logger(), "%s", buf);
+            mission_failed = true;
             break;
         }
 
@@ -626,12 +737,41 @@ void MissionExecutor::executeMission()
             {
                 RCLCPP_INFO(get_logger(), "[%zu/%zu] Executing action: '%s'",
                             i + 1, total, wp.extra_action.c_str());
-                it->second(wp, wp.extra_action);
+                if (wp.extra_action == "polish")
+                {
+                    snprintf(buf, sizeof(buf), "Polishing at point %zu/%zu",
+                             i + 1, total);
+                    publishStatus(hk_camera::msg::MissionStatus::STATE_POLISHING,
+                                  i, buf);
+                }
+                action_detail_.clear();
+                const bool action_ok = it->second(wp, wp.extra_action);
+                if (!action_ok)
+                {
+                    if (!mission_cancel_)
+                    {
+                        snprintf(buf, sizeof(buf),
+                                 "Action '%s' failed at point %zu/%zu",
+                                 wp.extra_action.c_str(), i + 1, total);
+                        std::string failure_message(buf);
+                        if (!action_detail_.empty())
+                            failure_message += ": " + action_detail_;
+                        publishStatus(hk_camera::msg::MissionStatus::STATE_FAILED,
+                                      i, failure_message);
+                        RCLCPP_ERROR(get_logger(), "%s", failure_message.c_str());
+                        mission_failed = true;
+                    }
+                    break;
+                }
             }
             else
             {
-                RCLCPP_WARN(get_logger(), "[%zu/%zu] Unknown action: '%s'",
-                            i + 1, total, wp.extra_action.c_str());
+                snprintf(buf, sizeof(buf), "Unknown action '%s' at point %zu/%zu",
+                         wp.extra_action.c_str(), i + 1, total);
+                publishStatus(hk_camera::msg::MissionStatus::STATE_FAILED, i, buf);
+                RCLCPP_ERROR(get_logger(), "%s", buf);
+                mission_failed = true;
+                break;
             }
         }
     }
@@ -646,7 +786,7 @@ void MissionExecutor::executeMission()
         RCLCPP_INFO(get_logger(), "Mission canceled at waypoint %zu",
                     current_index);
     }
-    else
+    else if (!mission_failed)
     {
         publishStatus(hk_camera::msg::MissionStatus::STATE_COMPLETED,
                       total, "Mission completed");
@@ -1331,22 +1471,27 @@ int main(int argc, char** argv)
     // extra_action = "home2"/"ready": 机械臂收拢/预备位姿 (调试用)
     // 注意: client 必须建在 mission_executor 节点上,
     // 由主线程 rclcpp::spin(node) 处理响应, 任务线程只管等 future
-    auto make_trigger_action = [node](const std::string& srv_name) {
+    auto make_trigger_action = [node](const std::string& srv_name,
+                                      double timeout_sec = 120.0) {
         auto client = node->create_client<std_srvs::srv::Trigger>(srv_name);
-        return [client, srv_name](const hk_camera::msg::MissionWaypoint&,
-                                  const std::string&) {
+        return [node, client, srv_name, timeout_sec](
+                   const hk_camera::msg::MissionWaypoint&,
+                   const std::string&) {
             if (!client->wait_for_service(3s))
             {
+                node->setActionDetail(srv_name + " service unavailable");
                 RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
-                             "%s NOT available (yolo_grasp.py running?)",
+                             "%s NOT available",
                              srv_name.c_str());
                 return false;
             }
             auto future = client->async_send_request(
                 std::make_shared<std_srvs::srv::Trigger::Request>());
             // 抓取/放置含多段 movej/movel，耗时长，超时给足
-            if (future.wait_for(120s) != std::future_status::ready)
+            if (future.wait_for(std::chrono::duration<double>(timeout_sec)) !=
+                std::future_status::ready)
             {
+                node->setActionDetail(srv_name + " timed out");
                 RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
                              "%s timeout", srv_name.c_str());
                 return false;
@@ -1355,6 +1500,8 @@ int main(int argc, char** argv)
             RCLCPP_INFO(rclcpp::get_logger("mission_executor"),
                         "%s result: success=%d, msg=%s",
                         srv_name.c_str(), res->success, res->message.c_str());
+            if (!res->success)
+                node->setActionDetail(res->message);
             return res->success;
         };
     };
@@ -1426,6 +1573,11 @@ int main(int argc, char** argv)
     node->registerAction("place", make_trigger_action("/yolo_grasp/place"));
     node->registerAction("home2", make_trigger_action("/yolo_grasp/home2"));
     node->registerAction("ready", make_trigger_action("/yolo_grasp/ready"));
+    node->registerAction(
+        "polish",
+        make_trigger_action(
+            "/elite_polish/run",
+            node->get_parameter("polish_timeout_sec").as_double()));
 
     rclcpp::spin(node);
     rclcpp::shutdown();

@@ -24,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'brain_node = kybot_brain.brain_node:main',
+            'polish_bridge = kybot_brain.polish_bridge:main',
         ],
     },
 )
