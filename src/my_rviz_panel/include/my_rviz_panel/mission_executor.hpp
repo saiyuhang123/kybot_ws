@@ -178,7 +178,17 @@ private:
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr polish_cancel_client_;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr polish_home_client_;
 
+    // ---- 末端模式 (支持运行时热切换, 不必重启定位/Nav) ----
+    // mission_thread_ 和参数回调线程都会碰它, 因此读一律走 endEffectorMode(),
+    // 写只发生在 onSetParameters() 里, 用 mode_mutex_ 挡住数据竞争。
     std::string end_effector_mode_{"twofinger"};
+    mutable std::mutex mode_mutex_;
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
+        mode_param_cb_handle_;
+
+    std::string endEffectorMode() const;
+    rcl_interfaces::msg::SetParametersResult onSetParameters(
+        const std::vector<rclcpp::Parameter>& params);
 };
 
 } // namespace my_rviz_panel

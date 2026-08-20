@@ -66,13 +66,31 @@ SETUP_ENV = ('source /opt/ros/humble/setup.bash && '
 KYBOT_SETUP = SETUP_ENV + 'source %s/install/setup.bash && ' % KYBOT_WS
 ELITE_SETUP = SETUP_ENV + 'source %s/install/setup.bash && ' % ELITE_WS
 
+# ---------- 定位/导航底座 (与末端无关, 换末端时不重启, 定位不丢) ----------
+# 这一组只含底盘/雷达/IMU/EKF/FAST_LIO/Nav2/相机/mission_executor, 没有任何
+# 末端专属内容。end_effector_mode 只是 mission_executor 的初始值, 运行中由
+# 面板通过 /mission_executor/set_parameters 热切换, 因此换末端无需重启本组。
+NAV_CMD = (KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py '
+           'use_ocr:=false end_effector_mode:=%s')
+# 车前感知 (D435 + 前方 YOLO -> /trash/target): 只有走瓶子抓取流程的末端需要。
+# 原先由 trash_pipeline 内嵌, 现在拆成独立组, 才能按末端单独起停。
+PERCEP_CMD = KYBOT_SETUP + 'ros2 launch trash_mission trash_mission.launch.py'
+NEEDS_PERCEP = {'twofinger', 'softtouch'}
+# 可在不停定位导航的前提下互换的末端。打磨头用的是另一套机械臂驱动
+# (start_robot.launch.py + 力控 + 深度相机), 不参与热换, 仍需整组停启。
+HOT_SWAPPABLE = {'twofinger', 'softtouch', 'linkerhand'}
+MISSION_EXECUTOR_NODE = 'mission_executor'
+# 旧末端软件栈是否彻底退场的判据。只用节点名: 服务/话题注册在进程被杀后会
+# 残留一段时间, 用服务名判"还在"会误判, 白等到超时。三种抓取末端共用
+# /yolo_grasp/*, 靠服务名本来也区分不了, 只能确认这些节点"全没了"。
+STALE_STACK_NODES = ('robot_cartesian_control', 'gripper_server',
+                     'ysURForceAppControl')
+RVIZ_CFG = '/home/nvidia/.rviz2/default.rviz'
+
 # ---------- 四种互斥末端的 launch 配对 ----------
 MODES = {
     'twofinger': {
         'title': '二指',
-        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup '
-                   'trash_pipeline.launch.py use_ocr:=false use_rviz:=true '
-                   'end_effector_mode:=twofinger',
         'arm_cmds': [
             ('arm_main', '机械臂驱动(二指)',
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp_two_finger.launch.py '
@@ -86,9 +104,6 @@ MODES = {
     'softtouch': {
         'title': '柔触手抓',
         # 柔触与二指共用车前瓶子感知和到点抓取流程。
-        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup '
-                   'trash_pipeline.launch.py use_ocr:=false use_rviz:=true '
-                   'end_effector_mode:=softtouch',
         'arm_cmds': [
             ('arm_main', '机械臂驱动(柔触)',
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp_soft_touch.launch.py '
@@ -99,8 +114,6 @@ MODES = {
     },
     'linkerhand': {
         'title': '灵巧手',
-        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py '
-                   'end_effector_mode:=linkerhand',
         'arm_cmds': [
             ('arm_main', '机械臂抓取(灵巧手)',
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp.launch.py' % ELITE_WS),
@@ -109,8 +122,6 @@ MODES = {
     },
     'polish': {
         'title': '打磨头',
-        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py '
-                   'end_effector_mode:=polish',
         'arm_cmds': [
             # 正式调度由启动面板下发命令：驱动使用 headless，不另起 RViz。
             ('arm_driver', '机械臂驱动(打磨)',
@@ -148,7 +159,10 @@ FIXED_CMDS = {
     'aiui': ('语音前端', KYBOT_SETUP + 'ros2 launch robot_aiui robot_aiui.launch.py'),
     'camera': ('海康相机', KYBOT_SETUP + 'ros2 run hk_camera hk_camera_node'),
     'ocr': ('OCR识别', KYBOT_SETUP + 'ros2 launch ocr_node ocr_node.launch.py'),
-    'rviz': ('RViz', KYBOT_SETUP + 'rviz2'),
+    # nav 组从 trash_pipeline 换成 bringup 后不再自带 MyPanel 版 RViz,
+    # 这里补上同一份配置, 保证 RViz 面板功能不丢 (配置缺失时退回裸 rviz2)。
+    'rviz': ('RViz', KYBOT_SETUP + 'if [ -f %s ]; then exec rviz2 -d %s; '
+             'else exec rviz2; fi' % (RVIZ_CFG, RVIZ_CFG)),
 }
 
 # 建图组 (对应 ~/Documents/start_fastlioMapping.sh 的四个组件,
@@ -171,7 +185,7 @@ MAPPING_CMDS = [
      'ros2 launch fast_lio mapping.launch.py config_file:=rslidar_wit.yaml' % DOC, 18),
 ]
 # 与建图互斥的组 (建图开启时这些必须停用)
-MUTEX_WITH_MAPPING = ('nav', 'arm', 'brain', 'aiui')
+MUTEX_WITH_MAPPING = ('nav', 'arm', 'brain', 'aiui', 'percep')
 
 # 任务点位页
 MISSION_STATE_NAMES = {
@@ -263,6 +277,75 @@ class RosProbe:
                 String, '/ocr_feedback', self._on_ocr_feedback, 10)
         except Exception as exc:
             self._report_error('OCR 接口不可用: %s' % exc)
+        try:
+            from rcl_interfaces.srv import GetParameters, SetParameters
+            self.set_param_cli = self.node.create_client(
+                SetParameters, '/%s/set_parameters' % MISSION_EXECUTOR_NODE)
+            self.get_param_cli = self.node.create_client(
+                GetParameters, '/%s/get_parameters' % MISSION_EXECUTOR_NODE)
+        except Exception as exc:
+            self.set_param_cli = None
+            self.get_param_cli = None
+            self._report_error('参数接口不可用(末端热切换降级): %s' % exc)
+
+    def _wait_future(self, fut, timeout):
+        """在非 spin 线程里等服务返回 (探针自带 spin 线程负责推进)."""
+        t0 = time.monotonic()
+        while not fut.done():
+            if time.monotonic() - t0 > timeout:
+                return None
+            time.sleep(0.05)
+        return fut.result()
+
+    def set_end_effector_mode(self, mode, timeout=8.0):
+        """热切换 mission_executor 的末端模式, 返回 (ok, reason)."""
+        cli = getattr(self, 'set_param_cli', None)
+        if cli is None:
+            return False, '参数接口不可用'
+        try:
+            from rcl_interfaces.msg import (Parameter, ParameterType,
+                                            ParameterValue)
+            from rcl_interfaces.srv import SetParameters
+            if not cli.wait_for_service(timeout_sec=timeout):
+                return False, '/%s/set_parameters 未就绪' % MISSION_EXECUTOR_NODE
+            req = SetParameters.Request()
+            value = ParameterValue()
+            value.type = ParameterType.PARAMETER_STRING
+            value.string_value = mode
+            param = Parameter()
+            param.name = 'end_effector_mode'
+            param.value = value
+            req.parameters = [param]
+            res = self._wait_future(cli.call_async(req), timeout)
+            if res is None:
+                return False, '下发超时'
+            if not res.results:
+                return False, '节点无返回'
+            if not res.results[0].successful:
+                return False, res.results[0].reason or '节点拒绝'
+            return True, ''
+        except Exception as exc:
+            return False, '下发异常: %s' % exc
+
+    def get_end_effector_mode(self, timeout=4.0):
+        """回读实际生效的末端模式; 节点不在或失败返回 None."""
+        cli = getattr(self, 'get_param_cli', None)
+        if cli is None:
+            return None
+        try:
+            from rcl_interfaces.srv import GetParameters
+            if not cli.service_is_ready():
+                return None
+            req = GetParameters.Request()
+            req.names = ['end_effector_mode']
+            res = self._wait_future(cli.call_async(req), timeout)
+            if res is None or not res.values:
+                return None
+            val = res.values[0]
+            # 4 == PARAMETER_STRING
+            return val.string_value if val.type == 4 else None
+        except Exception:
+            return None
 
     def _on_mission_status(self, msg):
         self.mission_status = msg
@@ -462,6 +545,15 @@ class MainWindow(QMainWindow):
         self._mission_from_here = False  # 当前任务是否由本页发起 (循环重发用)
         self._pending_safe_stops = set()  # 等打磨安全收尾后再停止的进程组
         self._safe_stop_deadline = 0.0
+        self._seq_title = '一键启动'   # 顺序执行器用途名 (一键启动/热换末端共用)
+        self._seq_fail_fn = None       # 某步超时时的回滚钩子
+        self._seq_done_fn = None       # 全部步骤成功后的收尾钩子
+        self._swap_active = False      # 热换末端进行中: 锁模式选择与启动按钮
+        self._swap_prev_mode = None    # 热换失败时回滚用
+        self._swap_restore_brain = False  # 热换前语音调度是否在跑
+        self._live_mode = None         # mission_executor 实际生效的末端
+        self._live_mode_inflight = False
+        self._live_mode_next = 0.0
 
         self.probe = RosProbe()
         self._build_ui()
@@ -519,6 +611,11 @@ class MainWindow(QMainWindow):
         mh.addWidget(self._radio_hand)
         mh.addWidget(self._radio_polish)
         left.addWidget(mode_box)
+        # 实际生效末端: 从活着的 mission_executor 回读, 防止"面板显示"与
+        # "节点实际参数"静默不一致 (外部起的 nav、面板重开都可能造成)
+        self._mode_live_label = QLabel('实际生效末端: —')
+        self._mode_live_label.setWordWrap(True)
+        left.addWidget(self._mode_live_label)
         self._radio_two.toggled.connect(
             lambda c: c and self._apply_mode('twofinger'))
         self._radio_soft.toggled.connect(
@@ -532,7 +629,9 @@ class MainWindow(QMainWindow):
         self._rows = {}
         groups_box = QGroupBox('功能组')
         gv = QVBoxLayout(groups_box)
-        for key, title in [('nav', '定位 + Nav'), ('arm', '机械臂(未选择末端)'),
+        for key, title in [('nav', '定位 + Nav'),
+                           ('percep', '车前感知 (D435+YOLO)'),
+                           ('arm', '机械臂(未选择末端)'),
                            ('brain', '语音调度'), ('aiui', '语音前端'),
                            ('camera', '海康相机'), ('ocr', 'OCR识别'),
                            ('rviz', 'RViz'), ('mapping', '建图 (FAST_LIO2)')]:
@@ -1122,19 +1221,49 @@ class MainWindow(QMainWindow):
         self._wp_action.blockSignals(False)
         self._wp_select(self._wp_list.currentRow())
 
+    def _mission_busy(self):
+        return (self.probe.has_node(MISSION_EXECUTOR_NODE)
+                and self.probe.mission_status is not None
+                and self.probe.mission_status.state not in MISSION_FREE_STATES)
+
+    def _stale_end_effector_stack(self):
+        """仍在线的末端软件栈节点; 空列表 = 旧末端已彻底退场, 可以起新末端。
+
+        故意只查节点名: 服务名在进程被杀后会残留, 用它判会一直等到超时。
+        """
+        return [n for n in STALE_STACK_NODES if self.probe.has_node(n)]
+
     def _apply_mode(self, mode, force=False):
-        mission_busy = (self.probe.has_node('mission_executor') and
-                        self.probe.mission_status is not None and
-                        self.probe.mission_status.state not in MISSION_FREE_STATES)
-        if not force and (self._group_running('nav')
-                          or self._group_running('arm')
-                          or self._group_running('brain')
-                          or mission_busy):
-            QMessageBox.information(
-                self, '模式锁定',
-                '定位Nav、机械臂、语音调度或任务正在运行，请先安全停止再切换末端。')
+        if mode == self._mode:
+            return
+        if self._swap_active:
+            self._sys_log('热换末端进行中, 忽略模式切换')
             self._sync_mode_radios()
             return
+        mission_busy = self._mission_busy()
+        stack_on = (self._group_running('nav') or self._group_running('arm')
+                    or self._group_running('brain'))
+        if not force and stack_on and not mission_busy \
+                and not self._group_running('mapping') \
+                and self._mode in HOT_SWAPPABLE and mode in HOT_SWAPPABLE:
+            # 抓取家族内互换: 定位/Nav/EKF/FAST_LIO 全程不停
+            self._hot_swap_mode(mode)
+            return
+        if not force and (stack_on or mission_busy):
+            if mission_busy:
+                text = '任务正在执行，请先取消任务再切换末端。'
+            elif self._group_running('mapping'):
+                text = '建图正在运行，请先停止建图再切换末端。'
+            else:
+                text = ('打磨头与抓取末端之间不支持热切换（机械臂驱动不同），\n'
+                        '请先停止 定位Nav / 机械臂 / 语音调度 再切换。\n\n'
+                        '二指、柔触手抓、灵巧手三者之间可以不停定位导航直接热换。')
+            QMessageBox.information(self, '模式锁定', text)
+            self._sync_mode_radios()
+            return
+        self._set_mode_now(mode)
+
+    def _set_mode_now(self, mode):
         self._mode = mode
         self._sync_mode_radios()
         self._rows['arm']['title'] = '机械臂(%s)' % MODES[mode]['title']
@@ -1142,6 +1271,140 @@ class MainWindow(QMainWindow):
         self._refresh_action_choices()
         self._refresh_buttons()
         self._sys_log('当前模式: %s' % MODES[mode]['title'])
+
+    # ---------- 热换末端 (不停定位导航) ----------
+
+    def _hot_swap_mode(self, new_mode):
+        """在保持定位/Nav 运行的前提下切换末端。
+
+        时序: 停旧末端软件栈 -> 等其彻底退场 -> 热改 mission_executor 参数
+              -> 回读校验 -> 按家族起停车前感知 -> 恢复语音调度。
+        新末端的机械臂软件栈不自动启动: 必须等人物理换完末端再手动点启动。
+        """
+        old_mode = self._mode
+        if self._seq_steps:
+            QMessageBox.information(self, '忙', '一键启动/上一次切换尚未结束。')
+            self._sync_mode_radios()
+            return
+        if not self.probe.has_node(MISSION_EXECUTOR_NODE):
+            QMessageBox.warning(
+                self, '无法热切换',
+                '未发现运行中的 mission_executor，无法热改末端参数。\n'
+                '请先停止相关组，用常规方式切换。')
+            self._sync_mode_radios()
+            return
+        old_title = MODES[old_mode]['title']
+        new_title = MODES[new_mode]['title']
+        ret = QMessageBox.question(
+            self, '热换末端确认',
+            '将把末端从「%s」切换为「%s」。\n\n'
+            '• 定位、Nav2、EKF、FAST_LIO 全程不停，定位不会丢\n'
+            '• 会停止：机械臂软件栈、语音调度\n'
+            '• 切换完成后请先物理更换末端，再手动启动机械臂\n\n继续？'
+            % (old_title, new_title))
+        if ret != QMessageBox.Yes:
+            self._sync_mode_radios()
+            return
+
+        self._swap_active = True
+        self._swap_prev_mode = old_mode
+        self._swap_restore_brain = self._group_running('brain')
+        # 乐观切换: 面板先显示新末端, 任何一步失败都回滚到旧末端
+        self._set_mode_now(new_mode)
+        self._sys_log('热换末端: %s -> %s (定位/Nav 保持运行)'
+                      % (old_title, new_title))
+
+        want_percep = new_mode in NEEDS_PERCEP
+        self._seq_title = '热换末端'
+        self._seq_fail_fn = self._hot_swap_failed
+        self._seq_steps = [
+            ('停止旧末端软件栈', self._swap_stop_old,
+             lambda: not self._stale_end_effector_stack(), 30),
+            ('热改 mission_executor 末端参数',
+             lambda: self._swap_set_param(new_mode),
+             lambda: self._live_mode == new_mode, 15),
+            ('调整车前感知', lambda: self._swap_apply_percep(want_percep),
+             (lambda: self.probe.has_node('front_perception_node'))
+             if want_percep else None,
+             # D435 initial_reset + YOLO-World 模型加载在 Jetson 上较慢
+             120 if want_percep else 0),
+            ('恢复语音调度', self._swap_restore_services,
+             (lambda: self.probe.has_node('brain_node'))
+             if self._swap_restore_brain else None,
+             30 if self._swap_restore_brain else 0),
+        ]
+        self._seq_done_fn = self._hot_swap_done
+        self._seq_timer.start(1000)
+        self._refresh_buttons()
+
+    def _swap_stop_old(self):
+        # 语音调度也要停: end_effector_mode 是它的启动参数, 改不了只能重启
+        if self._group_running('brain'):
+            self._stop_group('brain')
+        if self._group_running('arm'):
+            self._stop_group('arm')
+        else:
+            # 进程虽已不在, 残留节点仍可能占着服务名, 照样清一遍
+            self._sweep_group('arm')
+
+    def _swap_set_param(self, new_mode):
+        """后台线程下发参数 + 回读, 结果写入 _live_mode 供 ready_fn 判定."""
+        self._live_mode = None
+
+        def run():
+            ok, reason = self.probe.set_end_effector_mode(new_mode)
+            if not ok:
+                self.sig_sys.emit('热改末端参数失败: %s' % reason)
+                return
+            back = self.probe.get_end_effector_mode()
+            if back != new_mode:
+                self.sig_sys.emit('末端参数回读不一致 (期望 %s, 实际 %s)'
+                                  % (new_mode, back))
+                return
+            self._live_mode = back
+            self.sig_sys.emit('mission_executor 末端已热切换为 %s 并回读确认'
+                              % back)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _swap_apply_percep(self, want_percep):
+        running = self._group_running('percep')
+        if want_percep and not running:
+            self._start_group('percep')
+        elif not want_percep and running:
+            self._stop_group('percep')
+
+    def _swap_restore_services(self):
+        if self._swap_restore_brain:
+            self._start_group('brain')
+
+    def _hot_swap_done(self):
+        self._swap_active = False
+        self._seq_fail_fn = None
+        msg = ('末端已热切换为「%s」，定位/Nav 未中断。'
+               '请确认已物理更换末端后，再点「机械臂」行的启动。'
+               % MODES[self._mode]['title'])
+        self._sys_log(msg)
+        self._status_label.setText(msg)
+        self._refresh_buttons()
+
+    def _hot_swap_failed(self):
+        """任一步超时: 回滚面板模式, 并明确告知系统当前处于半切换状态."""
+        self._swap_active = False
+        self._seq_fail_fn = None
+        stale = self._stale_end_effector_stack()
+        prev = self._swap_prev_mode
+        if prev is not None:
+            self._set_mode_now(prev)
+        detail = ('仍在线的末端软件栈残留: %s' % '、'.join(stale)) if stale \
+            else '参数下发或回读未成功'
+        text = ('热换末端失败，已回滚面板显示为「%s」。\n%s\n\n'
+                '定位/Nav 未受影响。请检查日志后重试，'
+                '或停止相关组用常规方式切换。'
+                % (MODES[prev]['title'] if prev else '未选择', detail))
+        self._sys_log('热换末端失败: %s' % detail)
+        QMessageBox.warning(self, '热换末端失败', text)
+        self._refresh_buttons()
 
     # ---------- 进程组管理 ----------
 
@@ -1174,6 +1437,9 @@ class MainWindow(QMainWindow):
                 return
         if key == 'ocr' and self.probe.has_node('ocr_node'):
             self._sys_log('ocr_node 已在运行(可能由任务页启动), 不重复启动')
+            return
+        if key == 'percep' and self.probe.has_node('front_perception_node'):
+            self._sys_log('车前感知已在运行, 不重复启动')
             return
         if key == 'mapping':
             busy = [k for k in MUTEX_WITH_MAPPING if self._group_running(k)]
@@ -1217,11 +1483,20 @@ class MainWindow(QMainWindow):
             self._camera_post_start()
         if key == 'ocr':
             self._ocr_post_start()
+        if key == 'nav' and self._mode in NEEDS_PERCEP:
+            # 原 trash_pipeline 会连带拉起车前感知和 MyPanel 版 RViz。
+            # 拆组后在这里补齐, 操作习惯保持不变。
+            if not self._group_running('percep'):
+                self._start_group('percep')
+            if not self._group_running('rviz'):
+                self._start_group('rviz')
 
     def _group_cmds(self, key):
         if key == 'nav':
-            mode = MODES[self._mode]
-            return [('nav', '定位Nav', mode['nav_cmd'])]
+            # 与末端无关的底座; end_effector_mode 只是 mission_executor 初始值
+            return [('nav', '定位Nav', NAV_CMD % self._mode)]
+        if key == 'percep':
+            return [('percep', '车前感知', PERCEP_CMD)]
         if key == 'arm':
             mode = MODES[self._mode]
             return mode['arm_cmds']
@@ -1336,6 +1611,9 @@ class MainWindow(QMainWindow):
                 r'velodyne_localizatio[n]',  # FAST_LIO 定位终端窗
                 r'mission_executor[.]launch',  # mission_executor 终端窗
                 r'nav2_bringu[p]'],          # Nav2 终端窗
+        # 车前感知: D435 由 rs_launch 起, killpg 通常够, 残留时按特征补清
+        'percep': [r'front_perception_nod[e]',
+                   r'realsense2_camera_nod[e]'],
         'mapping': [r'wit_ros2_im[u]',       # 建图脚本的 IMU 窗
                     r'rslidar_sd[k]',        # 建图脚本的雷达窗
                     r'rs_to_velodyn[e]',     # 建图脚本的转换窗
@@ -1454,6 +1732,17 @@ class MainWindow(QMainWindow):
             if (self.probe.has_service('/elite_polish/run')
                     or self.probe.has_node('ysURForceAppControl')):
                 return '检测到打磨软件栈仍在线，请先安全停止打磨系统。'
+        # 三种抓取末端共用 /yolo_grasp/*, 靠服务名区分不了, 只能用
+        # mission_executor 实际生效的参数兜底: 不一致说明面板与节点脱节,
+        # 此时起机械臂会用错误的停车距离/动作白名单跑, 必须拦住。
+        if (self._live_mode is not None and self._live_mode != self._mode
+                and self.probe.has_node(MISSION_EXECUTOR_NODE)):
+            live_title = MODES.get(self._live_mode, {}).get(
+                'title', self._live_mode)
+            return ('mission_executor 实际生效末端为「%s」，与面板所选「%s」'
+                    '不一致。\n请重新点选目标末端完成热切换，'
+                    '或停止定位Nav后常规切换。'
+                    % (live_title, MODES[self._mode]['title']))
         return ''
 
     def _start_all(self):
@@ -1486,6 +1775,9 @@ class MainWindow(QMainWindow):
                           None, 0))
         self._seq_steps = steps
         self._seq_ready_fn = None
+        self._seq_title = '一键启动'
+        self._seq_fail_fn = None
+        self._seq_done_fn = None
         self._seq_timer.start(1000)
         self._sys_log('一键启动开始')
 
@@ -1501,21 +1793,32 @@ class MainWindow(QMainWindow):
                 self._sys_log('就绪 ✓')
                 self._seq_ready_fn = None
             elif time.time() > self._seq_wait_until:
-                self._sys_log('等待超时，一键启动已中止，请检查该组日志')
+                self._sys_log('等待超时，%s 已中止，请检查该组日志'
+                              % self._seq_title)
                 self._seq_ready_fn = None
                 self._seq_steps = []
                 self._seq_timer.stop()
-                self._status_label.setText('一键启动失败：组件等待超时')
+                self._status_label.setText('%s失败：组件等待超时'
+                                           % self._seq_title)
+                fail_fn, self._seq_fail_fn = self._seq_fail_fn, None
+                self._seq_done_fn = None
+                if fail_fn is not None:
+                    fail_fn()
                 return
             else:
                 return
         if not self._seq_steps:
             self._seq_timer.stop()
-            self._status_label.setText('一键启动完成')
-            self._sys_log('一键启动完成')
+            self._seq_fail_fn = None
+            done_fn, self._seq_done_fn = self._seq_done_fn, None
+            self._sys_log('%s完成' % self._seq_title)
+            if done_fn is not None:
+                done_fn()
+            else:
+                self._status_label.setText('%s完成' % self._seq_title)
             return
         desc, start_fn, ready_fn, timeout = self._seq_steps.pop(0)
-        self._status_label.setText('一键启动: %s ...' % desc)
+        self._status_label.setText('%s: %s ...' % (self._seq_title, desc))
         self._sys_log(desc)
         start_fn()
         if ready_fn is not None:
@@ -1532,31 +1835,83 @@ class MainWindow(QMainWindow):
         for k in MUTEX_WITH_MAPPING:
             needs_mode = k in ('nav', 'arm', 'brain')
             self._rows[k]['btn'].setEnabled(
-                not mapping_on and (not needs_mode or self._mode in MODES
-                                    or self._group_running(k)))
-        mission_busy = (self.probe.has_node('mission_executor') and
-                        self.probe.mission_status is not None and
-                        self.probe.mission_status.state not in MISSION_FREE_STATES)
-        mode_locked = (mapping_on or mission_busy
-                       or self._group_running('nav')
-                       or self._group_running('arm')
-                       or self._group_running('brain'))
-        self._btn_all.setEnabled(not mapping_on and self._mode in MODES)
-        self._radio_two.setEnabled(not mode_locked)
-        self._radio_soft.setEnabled(not mode_locked)
-        self._radio_hand.setEnabled(not mode_locked)
-        self._radio_polish.setEnabled(not mode_locked)
+                not mapping_on and not self._swap_active
+                and (not needs_mode or self._mode in MODES
+                     or self._group_running(k)))
+        mission_busy = self._mission_busy()
+        # 硬锁: 建图中 / 任务执行中 / 热换进行中, 一律不许动末端
+        hard_locked = mapping_on or mission_busy or self._swap_active
+        stack_on = (self._group_running('nav') or self._group_running('arm')
+                    or self._group_running('brain'))
+        self._btn_all.setEnabled(not mapping_on and not self._swap_active
+                                 and self._mode in MODES)
+        for key, radio in (('twofinger', self._radio_two),
+                           ('softtouch', self._radio_soft),
+                           ('linkerhand', self._radio_hand),
+                           ('polish', self._radio_polish)):
+            if hard_locked:
+                radio.setEnabled(False)
+            elif not stack_on:
+                radio.setEnabled(True)      # 系统全停: 自由选择
+            else:
+                # 系统在跑: 只允许抓取家族内部热换 (定位/Nav 不停),
+                # 打磨头进出都要整组停启, 因此置灰。
+                radio.setEnabled(key in HOT_SWAPPABLE
+                                 and self._mode in HOT_SWAPPABLE)
         # 保存建图: 只有 /map_save 服务在线才可点
         try:
             self._btn_save_map.setEnabled(self.probe.has_service('/map_save'))
         except Exception:
             self._btn_save_map.setEnabled(False)
 
+    def _refresh_live_mode(self):
+        """回读 mission_executor 实际生效的末端 (后台线程, 主线程只读缓存)."""
+        if self._swap_active:
+            # 热换进行中: _live_mode 由 _swap_set_param 独占写入, 这里只渲染,
+            # 否则轮询/节点瞬时消失会把它清掉, 让切换步骤白等到超时。
+            self._mode_live_label.setText('实际生效末端: 切换中...')
+            self._mode_live_label.setStyleSheet('')
+            return
+        if not self.probe.has_node(MISSION_EXECUTOR_NODE):
+            self._live_mode = None
+            self._mode_live_label.setText(
+                '实际生效末端: — (mission_executor 未运行)')
+            self._mode_live_label.setStyleSheet('')
+            return
+        now = time.monotonic()
+        if not self._live_mode_inflight and now >= self._live_mode_next:
+            self._live_mode_inflight = True
+
+            def run():
+                try:
+                    self._live_mode = self.probe.get_end_effector_mode()
+                finally:
+                    self._live_mode_next = time.monotonic() + 3.0
+                    self._live_mode_inflight = False
+
+            threading.Thread(target=run, daemon=True).start()
+        live = self._live_mode
+        if live is None:
+            self._mode_live_label.setText('实际生效末端: 回读中...')
+            self._mode_live_label.setStyleSheet('')
+            return
+        title = MODES.get(live, {}).get('title', live)
+        if self._mode is not None and live != self._mode:
+            self._mode_live_label.setText(
+                '⚠ 实际生效末端: %s，与面板所选「%s」不一致'
+                % (title, MODES[self._mode]['title']))
+            self._mode_live_label.setStyleSheet('color:#ff6b6b;')
+        else:
+            self._mode_live_label.setText('实际生效末端: %s' % title)
+            self._mode_live_label.setStyleSheet('color:#7ed37e;')
+
     def _refresh_status(self):
         self._refresh_buttons()
+        self._refresh_live_mode()
         checks = {
             # 一律用节点名判活: 服务/话题注册在进程被杀后会残留, 节点名清得快
-            'nav': lambda: self.probe.has_node('mission_executor'),
+            'nav': lambda: self.probe.has_node(MISSION_EXECUTOR_NODE),
+            'percep': lambda: self.probe.has_node('front_perception_node'),
             'arm': self._arm_online,
             'brain': lambda: self.probe.has_node('brain_node'),
             'aiui': lambda: self.probe.has_node('aiui_ros_node'),

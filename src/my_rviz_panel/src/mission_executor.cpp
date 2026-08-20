@@ -23,6 +23,12 @@ bool actionAllowedForMode(const std::string& mode, const std::string& action)
     return false;
 }
 
+bool isValidEndEffectorMode(const std::string& mode)
+{
+    return mode == "twofinger" || mode == "softtouch" ||
+           mode == "linkerhand" || mode == "polish";
+}
+
 }  // namespace
 
 MissionExecutor::MissionExecutor(const std::string& name)
@@ -47,15 +53,20 @@ MissionExecutor::MissionExecutor(const std::string& name)
     end_effector_mode_ = declare_parameter<std::string>(
         "end_effector_mode", "twofinger");
     declare_parameter("polish_timeout_sec", 1020.0);
-    if (end_effector_mode_ != "twofinger" &&
-        end_effector_mode_ != "softtouch" &&
-        end_effector_mode_ != "linkerhand" &&
-        end_effector_mode_ != "polish")
+    if (!isValidEndEffectorMode(end_effector_mode_))
     {
         RCLCPP_ERROR(get_logger(),
                      "Invalid end_effector_mode='%s'; all end-effector actions will be rejected",
                      end_effector_mode_.c_str());
     }
+
+    // 必须在所有 declare_parameter 之后注册: declare 自身也会触发本回调。
+    // 注册后即可在不重启本节点 (即不打断定位/Nav2) 的前提下热切换末端:
+    //   ros2 param set /mission_executor end_effector_mode softtouch
+    mode_param_cb_handle_ = add_on_set_parameters_callback(
+        [this](const std::vector<rclcpp::Parameter>& params) {
+            return onSetParameters(params);
+        });
 
     setupServices();
     setupClients();
@@ -87,6 +98,68 @@ MissionExecutor::~MissionExecutor()
     stopBase();
     if (mission_thread_.joinable())
         mission_thread_.join();
+}
+
+std::string MissionExecutor::endEffectorMode() const
+{
+    std::lock_guard<std::mutex> lock(mode_mutex_);
+    return end_effector_mode_;
+}
+
+// 运行时热切换末端。定位/Nav2/EKF/FAST_LIO 全程不受影响, 只有本节点的
+// 动作白名单、前向停车距离和收臂服务选择会跟着变。
+rcl_interfaces::msg::SetParametersResult MissionExecutor::onSetParameters(
+    const std::vector<rclcpp::Parameter>& params)
+{
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+
+    for (const auto& p : params)
+    {
+        if (p.get_name() != "end_effector_mode")
+            continue;
+
+        if (p.get_type() != rclcpp::ParameterType::PARAMETER_STRING)
+        {
+            result.successful = false;
+            result.reason = "end_effector_mode must be a string";
+            return result;
+        }
+
+        const std::string next = p.as_string();
+        if (!isValidEndEffectorMode(next))
+        {
+            result.successful = false;
+            result.reason = "invalid end_effector_mode '" + next +
+                "'; expected twofinger/softtouch/linkerhand/polish";
+            return result;
+        }
+
+        // 任务执行中一律拒绝: 动作白名单、停车距离、收臂服务都会中途改变
+        // 语义, 半程换末端等于让机器人用错误的物理假设继续跑。
+        if (mission_running_.load())
+        {
+            result.successful = false;
+            result.reason =
+                "mission is running; cancel the mission before switching "
+                "end effector";
+            return result;
+        }
+
+        std::string prev;
+        {
+            std::lock_guard<std::mutex> lock(mode_mutex_);
+            prev = end_effector_mode_;
+            end_effector_mode_ = next;
+        }
+        if (prev != next)
+        {
+            RCLCPP_WARN(get_logger(),
+                        "End effector mode hot-switched: %s -> %s",
+                        prev.c_str(), next.c_str());
+        }
+    }
+    return result;
 }
 
 void MissionExecutor::registerAction(const std::string& name, ActionHandler handler)
@@ -334,7 +407,7 @@ bool MissionExecutor::driveDistance(double distance, double speed,
     const double command = direction * speed;
     // 柔触模式用专用停车保护距离，其他末端保持 front_stop_distance 不变
     const double front_stop_distance =
-        end_effector_mode_ == "softtouch"
+        endEffectorMode() == "softtouch"
             ? get_parameter("softtouch_front_stop_distance").as_double()
             : get_parameter("front_stop_distance").as_double();
     const double scan_timeout = get_parameter("scan_timeout").as_double();
@@ -463,15 +536,17 @@ void MissionExecutor::onRunMission(
 
     // 在底盘移动前完成整条路线的末端动作预检，防止装着打磨头却执行抓取，
     // 或装着夹爪却在到点后才发现 polish 不可用。
+    // 整段任务只在这里读一次末端模式, 避免任务中途被热切换改变语义
+    const std::string mission_mode = endEffectorMode();
     for (size_t i = 0; i < req->waypoints.size(); ++i)
     {
         const auto& action = req->waypoints[i].extra_action;
-        if (!actionAllowedForMode(end_effector_mode_, action))
+        if (!actionAllowedForMode(mission_mode, action))
         {
             res->accepted = false;
             res->message = "Waypoint " + std::to_string(i + 1) +
                 " action '" + action + "' is incompatible with end effector '" +
-                end_effector_mode_ + "'";
+                mission_mode + "'";
             RCLCPP_ERROR(get_logger(), "%s", res->message.c_str());
             return;
         }
@@ -507,7 +582,7 @@ void MissionExecutor::onCancelMission(
     // 取消当前导航
     if (nav_client_)
         nav_client_->async_cancel_all_goals();
-    if (end_effector_mode_ == "polish" &&
+    if (endEffectorMode() == "polish" &&
         polish_cancel_client_ && polish_cancel_client_->service_is_ready())
     {
         polish_cancel_client_->async_send_request(
@@ -548,11 +623,11 @@ void MissionExecutor::executeMission()
     }
 
     // ---- 任务开始: 机械臂收拢到 Home2 (导航期间安全姿态, 无机械臂时跳过) ----
-    auto stow_client = end_effector_mode_ == "polish"
-        ? polish_home_client_ : arm_home2_client_;
-    const bool stow_required = end_effector_mode_ == "polish";
+    const std::string stow_mode = endEffectorMode();
+    const bool stow_required = stow_mode == "polish";
+    auto stow_client = stow_required ? polish_home_client_ : arm_home2_client_;
     const auto stow_timeout = stow_required ? 90s : 30s;
-    const char* stow_name = end_effector_mode_ == "polish"
+    const char* stow_name = stow_required
         ? "/elite_polish/home" : "/yolo_grasp/home2";
     if (stow_client->wait_for_service(5s))
     {
@@ -1033,7 +1108,7 @@ bool MissionExecutor::approachToBottle(double& traveled_distance)
     const double approach_speed =
         get_parameter("bottle_approach_speed").as_double();
     const double front_stop =
-        end_effector_mode_ == "softtouch"
+        endEffectorMode() == "softtouch"
             ? get_parameter("softtouch_front_stop_distance").as_double()
             : get_parameter("front_stop_distance").as_double();
     const double scan_timeout =
