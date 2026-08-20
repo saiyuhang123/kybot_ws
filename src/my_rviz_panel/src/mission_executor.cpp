@@ -525,7 +525,7 @@ void MissionExecutor::executeMission()
 
     // ---- 自动登录相机 ----
     RCLCPP_INFO(get_logger(), "Checking camera login...");
-    if (login_client_->wait_for_service(3s))
+    if (login_client_->wait_for_service(5s))
     {
         auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
         auto future = login_client_->async_send_request(req);
@@ -548,7 +548,7 @@ void MissionExecutor::executeMission()
     const auto stow_timeout = stow_required ? 90s : 30s;
     const char* stow_name = end_effector_mode_ == "polish"
         ? "/elite_polish/home" : "/yolo_grasp/home2";
-    if (stow_client->wait_for_service(2s))
+    if (stow_client->wait_for_service(5s))
     {
         RCLCPP_INFO(get_logger(), "Stowing arm to Home2 via %s before navigation...",
                     stow_name);
@@ -866,7 +866,7 @@ bool MissionExecutor::callTriggerService(
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client,
     const std::string& name, double timeout_sec)
 {
-    if (!client->wait_for_service(3s))
+    if (!client->wait_for_service(5s))
     {
         RCLCPP_ERROR(get_logger(), "%s NOT available (yolo_grasp.py running?)",
                      name.c_str());
@@ -1313,7 +1313,7 @@ bool MissionExecutor::approachToBottleMapGoal(
 bool MissionExecutor::setPTZPose(float pan, float tilt, float zoom)
 {
     RCLCPP_INFO(get_logger(), "setPTZPose: checking service...");
-    if (!ptz_client_->wait_for_service(3s))
+    if (!ptz_client_->wait_for_service(5s))
     {
         RCLCPP_ERROR(get_logger(), "SetPTZPose service NOT available at /hk_camera/set_ptz_pose");
         return false;
@@ -1341,7 +1341,7 @@ bool MissionExecutor::setPTZPose(float pan, float tilt, float zoom)
 bool MissionExecutor::capturePicture()
 {
     RCLCPP_INFO(get_logger(), "capturePicture: checking service...");
-    if (!capture_client_->wait_for_service(3s))
+    if (!capture_client_->wait_for_service(5s))
     {
         RCLCPP_ERROR(get_logger(), "CapturePicture service NOT available at /hk_camera/capture");
         return false;
@@ -1478,7 +1478,7 @@ int main(int argc, char** argv)
         return [node, client, srv_name, timeout_sec](
                    const hk_camera::msg::MissionWaypoint&,
                    const std::string&) {
-            if (!client->wait_for_service(3s))
+            if (!client->wait_for_service(5s))
             {
                 node->setActionDetail(srv_name + " service unavailable");
                 RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
@@ -1533,7 +1533,7 @@ int main(int argc, char** argv)
 
         // 2. 视觉抓取
         bool ok = false;
-        if (approach_ok && !grasp_trigger->wait_for_service(3s))
+        if (approach_ok && !grasp_trigger->wait_for_service(5s))
         {
             RCLCPP_ERROR(rclcpp::get_logger("mission_executor"),
                          "/yolo_grasp/grasp_hold NOT available "

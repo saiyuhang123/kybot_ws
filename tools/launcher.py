@@ -94,7 +94,7 @@ MODES = {
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp_soft_touch.launch.py '
              'run_grasp_main:=true grasp_headless:=false' % ELITE_WS),
         ],
-        # 抓取主程序由柔触 launch 在 T+9s 打开独立交互终端。
+        # 抓取主程序由柔触 launch 在 T+9s 打开独立交互终端（保留键盘调试）。
         'arm_grasp_delay_s': 0,
     },
     'linkerhand': {
@@ -894,7 +894,7 @@ class MainWindow(QMainWindow):
                 '以下点位动作与当前安装的%s不兼容：\n%s'
                 % (MODES[self._mode]['title'], '、'.join(incompatible)))
             return
-        if not self.probe.run_cli.wait_for_service(timeout_sec=2.0):
+        if not self.probe.run_cli.wait_for_service(timeout_sec=5.0):
             self._sys_log('/mission/run 服务无应答(mission_executor 在运行吗?)')
             return
         from hk_camera.srv import RunMission
@@ -915,7 +915,7 @@ class MainWindow(QMainWindow):
 
     def _mission_cancel(self):
         self._mission_from_here = False  # 取消即退出循环
-        if not self.probe.cancel_cli.wait_for_service(timeout_sec=2.0):
+        if not self.probe.cancel_cli.wait_for_service(timeout_sec=5.0):
             self._sys_log('/mission/cancel 服务无应答')
             return
         from std_srvs.srv import Trigger
@@ -1432,7 +1432,15 @@ class MainWindow(QMainWindow):
                     and self.probe.has_service('/force_mode_server/set_force_mode')
                     and self.probe.has_publisher('/elite_forceapp_cmd_result')
                     and self.probe.has_publisher('/camera/depth/image_raw'))
-        if self._mode in ('twofinger', 'softtouch', 'linkerhand'):
+        if self._mode == 'softtouch':
+            # 柔触必须额外确认底层 Modbus 桥接节点和服务都在线，
+            # 否则 UI 会误判“机械臂在线”，但实际柔触控制通道未就绪。
+            return (self.probe.has_node('robot_cartesian_control')
+                    and self.probe.has_service('/yolo_grasp/grasp_hold')
+                    and self.probe.has_node('gripper_server')
+                    and self.probe.has_service('/gripper_command')
+                    and self.probe.has_publisher('/gripper_pressure'))
+        if self._mode in ('twofinger', 'linkerhand'):
             return (self.probe.has_node('robot_cartesian_control')
                     and self.probe.has_service('/yolo_grasp/grasp_hold'))
         return False
