@@ -92,12 +92,10 @@ MODES = {
         'arm_cmds': [
             ('arm_main', '机械臂驱动(柔触)',
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp_soft_touch.launch.py '
-             'run_grasp_main:=false' % ELITE_WS),
-            ('arm_grasp', '抓取服务(柔触)',
-             ELITE_SETUP + 'cd %s/biaoding && python3 yolo_grasp.py '
-             '--gripper soft_touch --target-class bottle --headless ' % ELITE_WS),
+             'run_grasp_main:=true grasp_headless:=false' % ELITE_WS),
         ],
-        'arm_grasp_delay_s': 10,
+        # 抓取主程序由柔触 launch 在 T+9s 打开独立交互终端。
+        'arm_grasp_delay_s': 0,
     },
     'linkerhand': {
         'title': '灵巧手',
