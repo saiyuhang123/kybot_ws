@@ -29,6 +29,9 @@ MissionExecutor::MissionExecutor(const std::string& name)
     : Node(name)
 {
     declare_parameter("front_stop_distance", 0.70);
+    // 柔触专用前向停车保护距离 (m)：仅 end_effector_mode=softtouch 时生效，
+    // 其他末端仍用 front_stop_distance
+    declare_parameter("softtouch_front_stop_distance", 0.50);
     declare_parameter("scan_timeout", 0.5);
     declare_parameter("odom_timeout", 0.30);
     declare_parameter("front_scan_min_angle", -10.0);
@@ -329,8 +332,11 @@ bool MissionExecutor::driveDistance(double distance, double speed,
 
     const double direction = forward ? 1.0 : -1.0;
     const double command = direction * speed;
+    // 柔触模式用专用停车保护距离，其他末端保持 front_stop_distance 不变
     const double front_stop_distance =
-        get_parameter("front_stop_distance").as_double();
+        end_effector_mode_ == "softtouch"
+            ? get_parameter("softtouch_front_stop_distance").as_double()
+            : get_parameter("front_stop_distance").as_double();
     const double scan_timeout = get_parameter("scan_timeout").as_double();
     const double odom_timeout = get_parameter("odom_timeout").as_double();
     const auto motion_start = std::chrono::steady_clock::now();
@@ -1027,7 +1033,9 @@ bool MissionExecutor::approachToBottle(double& traveled_distance)
     const double approach_speed =
         get_parameter("bottle_approach_speed").as_double();
     const double front_stop =
-        get_parameter("front_stop_distance").as_double();
+        end_effector_mode_ == "softtouch"
+            ? get_parameter("softtouch_front_stop_distance").as_double()
+            : get_parameter("front_stop_distance").as_double();
     const double scan_timeout =
         get_parameter("scan_timeout").as_double();
     const double odom_timeout =

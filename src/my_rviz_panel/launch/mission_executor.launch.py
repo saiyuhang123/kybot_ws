@@ -21,6 +21,7 @@ def generate_launch_description():
                 'approach_distance': 1.5,   # 米 (最大走距, 实际由 front_stop_distance 决定停车)
                 'approach_speed': 0.1,      # 米/秒
                 'front_stop_distance': 0.70,
+                'softtouch_front_stop_distance': 0.50,  # 柔触专用前向停车保护距离（米），仅 softtouch 模式生效
                 'scan_timeout': 0.5,
                 'odom_timeout': 0.30,
                 'front_scan_min_angle': -10.0,
