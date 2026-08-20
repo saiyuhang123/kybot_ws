@@ -106,6 +106,14 @@ std::string MissionExecutor::endEffectorMode() const
     return end_effector_mode_;
 }
 
+// 路边捡瓶子只开放给二指。柔触与灵巧手只做到点抓取, 不参与路边识别;
+// 打磨头本来就与瓶子无关。注意这与"谁启动了车前感知"无关: 就算有人
+// 手工把 trash_mission 起了, 非二指模式也不会因为 /trash/target 中断导航。
+bool MissionExecutor::roadsideBottleEnabled() const
+{
+    return endEffectorMode() == "twofinger";
+}
+
 // 运行时热切换末端。定位/Nav2/EKF/FAST_LIO 全程不受影响, 只有本节点的
 // 动作白名单、前向停车距离和收臂服务选择会跟着变。
 rcl_interfaces::msg::SetParametersResult MissionExecutor::onSetParameters(
@@ -259,6 +267,21 @@ void MissionExecutor::onTrashTarget(
 
     if (!mission_running_ || mission_cancel_)
     {
+        return;
+    }
+
+    // 硬门: 非二指末端不参与路边捡瓶, 绝不让 /trash/target 中断导航。
+    if (!roadsideBottleEnabled())
+    {
+        bottle_candidate_count_ = 0;
+        if (msg->detected)
+        {
+            RCLCPP_WARN_THROTTLE(
+                get_logger(), *get_clock(), 10000,
+                "Roadside bottle pickup is twofinger-only; ignoring "
+                "/trash/target under end effector '%s'",
+                endEffectorMode().c_str());
+        }
         return;
     }
 
@@ -718,7 +741,7 @@ void MissionExecutor::executeMission()
                           i, buf);
             RCLCPP_INFO(get_logger(), "[%zu/%zu] Navigating...", i + 1, total);
 
-            nav_res = navigateTo(wp.nav_pose);
+            nav_res = navigateTo(wp.nav_pose, roadsideBottleEnabled());
             if (nav_res != NavResult::INTERRUPTED)
             {
                 break;

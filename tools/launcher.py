@@ -72,16 +72,21 @@ ELITE_SETUP = SETUP_ENV + 'source %s/install/setup.bash && ' % ELITE_WS
 # 面板通过 /mission_executor/set_parameters 热切换, 因此换末端无需重启本组。
 NAV_CMD = (KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py '
            'use_ocr:=false end_effector_mode:=%s')
-# 车前感知 (D435 + 前方 YOLO -> /trash/target): 只有走瓶子抓取流程的末端需要。
+# 路边捡瓶感知 (D435 + 前方 YOLO -> /trash/target): 只有二指参与。
+# 柔触和灵巧手只做到点抓取, 没有路边识别环节; 打磨头与瓶子无关。
 # 原先由 trash_pipeline 内嵌, 现在拆成独立组, 才能按末端单独起停。
 PERCEP_CMD = KYBOT_SETUP + 'ros2 launch trash_mission trash_mission.launch.py'
-NEEDS_PERCEP = {'twofinger', 'softtouch'}
+NEEDS_PERCEP = {'twofinger'}
 # 首次随 nav 启动时的错峰秒数, 照搬 trash_pipeline 原本的 TimerAction:
 # "D435 + 感知在底盘起来后启动, 避免开机瞬间 CPU 过载", RViz 最后起。
 # D435 initial_reset + YOLO-World 加载若与 FAST_LIO/Nav2 初始化同时进行,
 # 在 Jetson 上会正面抢 CPU。热换末端时 nav 已稳定, 不需要这个延时。
 PERCEP_START_DELAY_S = 12
 RVIZ_START_DELAY_S = 16
+# 原 trash_pipeline (二指/柔触) 带 use_rviz:=true 会自动拉起 MyPanel 版 RViz,
+# 灵巧手/打磨走 bringup 时没有。这里与"路边捡瓶开放范围"解耦, 各自保持原习惯:
+# 柔触不再捡瓶, 但 RViz 该有还是有。
+NAV_AUTO_RVIZ = {'twofinger', 'softtouch'}
 # 可在不停定位导航的前提下互换的末端。打磨头用的是另一套机械臂驱动
 # (start_robot.launch.py + 力控 + 深度相机), 不参与热换, 仍需整组停启。
 HOT_SWAPPABLE = {'twofinger', 'softtouch', 'linkerhand'}
@@ -109,7 +114,8 @@ MODES = {
     },
     'softtouch': {
         'title': '柔触手抓',
-        # 柔触与二指共用车前瓶子感知和到点抓取流程。
+        # 柔触只做到点抓取 (与灵巧手一致), 不参与路边识别捡瓶。
+        # 但前向停车距离仍用柔触专用的 0.50m (末端更长), 见 mission_executor。
         'arm_cmds': [
             ('arm_main', '机械臂驱动(柔触)',
              ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp_soft_touch.launch.py '
@@ -636,7 +642,7 @@ class MainWindow(QMainWindow):
         groups_box = QGroupBox('功能组')
         gv = QVBoxLayout(groups_box)
         for key, title in [('nav', '定位 + Nav'),
-                           ('percep', '车前感知 (D435+YOLO)'),
+                           ('percep', '路边捡瓶感知 (D435, 仅二指)'),
                            ('arm', '机械臂(未选择末端)'),
                            ('brain', '语音调度'), ('aiui', '语音前端'),
                            ('camera', '海康相机'), ('ocr', 'OCR识别'),
@@ -1445,9 +1451,15 @@ class MainWindow(QMainWindow):
         if key == 'ocr' and self.probe.has_node('ocr_node'):
             self._sys_log('ocr_node 已在运行(可能由任务页启动), 不重复启动')
             return
-        if key == 'percep' and self.probe.has_node('front_perception_node'):
-            self._sys_log('车前感知已在运行, 不重复启动')
-            return
+        if key == 'percep':
+            # 路边捡瓶只开放给二指; mission_executor 那侧也有同样的硬门,
+            # 这里拦一道是为了不让无用的 D435 + YOLO 白占 Jetson 的 CPU。
+            if self._mode not in NEEDS_PERCEP:
+                self._sys_log('路边捡瓶感知只用于二指, 当前末端不启动')
+                return
+            if self.probe.has_node('front_perception_node'):
+                self._sys_log('路边捡瓶感知已在运行, 不重复启动')
+                return
         if key == 'mapping':
             if self._seq_busy() or self._swap_active:
                 # 建图会停掉 nav/arm/brain/percep, 半路插进热换会把状态搅烂
@@ -1494,14 +1506,16 @@ class MainWindow(QMainWindow):
             self._camera_post_start()
         if key == 'ocr':
             self._ocr_post_start()
-        if key == 'nav' and self._mode in NEEDS_PERCEP:
+        if key == 'nav':
             # 原 trash_pipeline 会连带拉起车前感知和 MyPanel 版 RViz, 并且
             # 分别延后 12s / 16s。拆组后必须把这个错峰照搬过来, 否则
             # D435 initial_reset + YOLO 加载会和 FAST_LIO/Nav2 初始化撞车。
             # 用 _start_proc 自带的延时: 期间点"停止"可取消待启动的进程。
-            if not self._group_running('percep'):
+            if self._mode in NEEDS_PERCEP \
+                    and not self._group_running('percep'):
                 self._start_group('percep', delay_s=PERCEP_START_DELAY_S)
-            if not self._group_running('rviz'):
+            if self._mode in NAV_AUTO_RVIZ \
+                    and not self._group_running('rviz'):
                 self._start_group('rviz', delay_s=RVIZ_START_DELAY_S)
 
     def _group_cmds(self, key):
@@ -1879,6 +1893,11 @@ class MainWindow(QMainWindow):
                 not mapping_on and not self._swap_active
                 and (not needs_mode or self._mode in MODES
                      or self._group_running(k)))
+        # 路边捡瓶感知只有二指能启动; 非二指时若已在跑, 仍允许点"停止"清掉
+        self._rows['percep']['btn'].setEnabled(
+            not mapping_on and not self._swap_active
+            and (self._mode in NEEDS_PERCEP
+                 or self._group_running('percep')))
         mission_busy = self._mission_busy()
         # 硬锁: 建图中 / 任务执行中 / 热换进行中, 一律不许动末端
         hard_locked = mapping_on or mission_busy or self._swap_active

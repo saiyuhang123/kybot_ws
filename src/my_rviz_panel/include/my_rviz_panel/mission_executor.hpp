@@ -187,6 +187,9 @@ private:
         mode_param_cb_handle_;
 
     std::string endEffectorMode() const;
+    // 路边捡瓶 (D435 前向感知 -> /trash/target -> 中断导航去抓) 是否开放。
+    // 只有二指参与; 柔触和灵巧手只做到点抓取, 打磨头无关。
+    bool roadsideBottleEnabled() const;
     rcl_interfaces::msg::SetParametersResult onSetParameters(
         const std::vector<rclcpp::Parameter>& params);
 };
