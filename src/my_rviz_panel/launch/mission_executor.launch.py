@@ -9,8 +9,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'end_effector_mode', default_value='twofinger',
-            choices=['twofinger', 'linkerhand', 'polish'],
-            description='实际安装末端: twofinger/linkerhand/polish'),
+            choices=['twofinger', 'softtouch', 'linkerhand', 'polish'],
+            description='实际安装末端: twofinger/softtouch/linkerhand/polish'),
         Node(
             package='my_rviz_panel',
             executable='mission_executor',

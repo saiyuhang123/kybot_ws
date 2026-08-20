@@ -230,6 +230,7 @@ GRIPPER_ONLY_TOOLS = {'approach', 'retreat', 'grasp', 'place',
 POLISH_ONLY_TOOLS = {'polish'}
 MODE_ROUTE_ACTIONS = {
     'twofinger': {'', 'grasp', 'place', 'home2', 'ready'},
+    'softtouch': {'', 'grasp', 'place', 'home2', 'ready'},
     'linkerhand': {'', 'grasp', 'place', 'home2', 'ready'},
     'polish': {'', 'polish'},
 }

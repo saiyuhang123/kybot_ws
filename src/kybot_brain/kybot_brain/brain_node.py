@@ -164,7 +164,8 @@ class BrainNode(Node):
         self._arm_timeout = p('arm_timeout_sec').value
         self._polish_timeout = p('polish_timeout_sec').value
         self._end_effector_mode = str(p('end_effector_mode').value).strip()
-        if self._end_effector_mode not in ('twofinger', 'linkerhand', 'polish'):
+        if self._end_effector_mode not in (
+                'twofinger', 'softtouch', 'linkerhand', 'polish'):
             raise ValueError('非法 end_effector_mode: %s'
                              % self._end_effector_mode)
         self._approach_speed = p('approach_speed').value
@@ -188,8 +189,11 @@ class BrainNode(Node):
                 '需要打磨时先 navigate_and_wait 到点，再调用 polish；polish 本身就是命令3，'
                 '已经包含拍摄位→深度识别→接触→打磨→Home2，不要拆开或额外调用 approach。')
         else:
-            mode_title = ('二指夹爪' if self._end_effector_mode == 'twofinger'
-                          else '灵巧手')
+            mode_title = {
+                'twofinger': '二指夹爪',
+                'softtouch': '柔触手抓',
+                'linkerhand': '灵巧手',
+            }[self._end_effector_mode]
             mode_rules = (
                 '末端互斥硬约束：当前禁止打磨。抓取前必须先调 approach 慢速逼近到目标跟前，'
                 '再调 grasp；grasp 结束后会自动后退到导航位置。')

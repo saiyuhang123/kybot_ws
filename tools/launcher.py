@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """KYBOT 一键启动面板 (PyQt5, 单文件, 双击可运行)
 
-分组管理: 定位Nav / 机械臂(二指|灵巧手|打磨头, 单选互斥) / 语音调度 / 语音前端 / RViz
+分组管理: 定位Nav / 机械臂(二指|柔触|灵巧手|打磨头, 单选互斥) / 语音调度 / 语音前端 / RViz
 - 状态灯查 ROS 图(节点/服务在线), 不查进程
 - 停止杀整个进程组 (setsid + killpg), 杜绝 ros2 launch 留僵尸
 - 日志分组 tab, 每组上限 5000 行循环覆盖
@@ -66,7 +66,7 @@ SETUP_ENV = ('source /opt/ros/humble/setup.bash && '
 KYBOT_SETUP = SETUP_ENV + 'source %s/install/setup.bash && ' % KYBOT_WS
 ELITE_SETUP = SETUP_ENV + 'source %s/install/setup.bash && ' % ELITE_WS
 
-# ---------- 三种互斥末端的 launch 配对 ----------
+# ---------- 四种互斥末端的 launch 配对 ----------
 MODES = {
     'twofinger': {
         'title': '二指',
@@ -82,6 +82,22 @@ MODES = {
              '--gripper two_finger --target-class bottle ' % ELITE_WS),
         ],
         'arm_grasp_delay_s': 10,  # 主 launch 起完再起 headless 抓取服务
+    },
+    'softtouch': {
+        'title': '柔触手抓',
+        # 柔触与二指共用车前瓶子感知和到点抓取流程。
+        'nav_cmd': KYBOT_SETUP + 'ros2 launch kybot_bringup '
+                   'trash_pipeline.launch.py use_ocr:=false use_rviz:=true '
+                   'end_effector_mode:=softtouch',
+        'arm_cmds': [
+            ('arm_main', '机械臂驱动(柔触)',
+             ELITE_SETUP + 'ros2 launch %s/biaoding/yolo_grasp_soft_touch.launch.py '
+             'run_grasp_main:=false' % ELITE_WS),
+            ('arm_grasp', '抓取服务(柔触)',
+             ELITE_SETUP + 'cd %s/biaoding && python3 yolo_grasp.py '
+             '--gripper soft_touch --target-class bottle --headless ' % ELITE_WS),
+        ],
+        'arm_grasp_delay_s': 10,
     },
     'linkerhand': {
         'title': '灵巧手',
@@ -118,6 +134,7 @@ MODES = {
 
 MODE_ACTIONS = {
     'twofinger': {'', 'grasp', 'place', 'home2', 'ready'},
+    'softtouch': {'', 'grasp', 'place', 'home2', 'ready'},
     'linkerhand': {'', 'grasp', 'place', 'home2', 'ready'},
     'polish': {'', 'polish'},
 }
@@ -491,18 +508,23 @@ class MainWindow(QMainWindow):
         mode_box = QGroupBox('机械臂模式 (同一末端, 互斥)')
         mh = QHBoxLayout(mode_box)
         self._radio_two = QRadioButton('二指')
+        self._radio_soft = QRadioButton('柔触手抓')
         self._radio_hand = QRadioButton('灵巧手')
         self._radio_polish = QRadioButton('打磨头')
         self._mode_group = QButtonGroup(self)
         self._mode_group.addButton(self._radio_two)
+        self._mode_group.addButton(self._radio_soft)
         self._mode_group.addButton(self._radio_hand)
         self._mode_group.addButton(self._radio_polish)
         mh.addWidget(self._radio_two)
+        mh.addWidget(self._radio_soft)
         mh.addWidget(self._radio_hand)
         mh.addWidget(self._radio_polish)
         left.addWidget(mode_box)
         self._radio_two.toggled.connect(
             lambda c: c and self._apply_mode('twofinger'))
+        self._radio_soft.toggled.connect(
+            lambda c: c and self._apply_mode('softtouch'))
         self._radio_hand.toggled.connect(
             lambda c: c and self._apply_mode('linkerhand'))
         self._radio_polish.toggled.connect(
@@ -1068,7 +1090,7 @@ class MainWindow(QMainWindow):
     def _require_mode(self, action):
         if self._mode in MODES:
             return True
-        text = '请先人工确认并选择实际安装的末端（二指、灵巧手或打磨头）。'
+        text = '请先人工确认并选择实际安装的末端（二指、柔触手抓、灵巧手或打磨头）。'
         self._sys_log('%s被阻止: 未选择末端' % action)
         QMessageBox.warning(self, '未选择末端', text)
         return False
@@ -1077,6 +1099,7 @@ class MainWindow(QMainWindow):
         """恢复单选状态；允许安全初始态一个都不选。"""
         radios = {
             'twofinger': self._radio_two,
+            'softtouch': self._radio_soft,
             'linkerhand': self._radio_hand,
             'polish': self._radio_polish,
         }
@@ -1304,6 +1327,8 @@ class MainWindow(QMainWindow):
     # 不在 launch 的进程组里, killpg 够不到, 按命令行特征精准清理)
     SWEEP_PATTERNS = {
         'arm': [r'yolo_grasp[.]py',
+                r'soft_touch[.]launch[.]py',
+                r'gripper_serve[r]',
                 r'ysURForceAppContro[l]',
                 r'ysAppComman[d]',
                 r'elite_joint_trajectory_bridg[e]',
@@ -1409,7 +1434,7 @@ class MainWindow(QMainWindow):
                     and self.probe.has_service('/force_mode_server/set_force_mode')
                     and self.probe.has_publisher('/elite_forceapp_cmd_result')
                     and self.probe.has_publisher('/camera/depth/image_raw'))
-        if self._mode in ('twofinger', 'linkerhand'):
+        if self._mode in ('twofinger', 'softtouch', 'linkerhand'):
             return (self.probe.has_node('robot_cartesian_control')
                     and self.probe.has_service('/yolo_grasp/grasp_hold'))
         return False
@@ -1418,8 +1443,8 @@ class MainWindow(QMainWindow):
         """阻止不同末端的软件栈同时在线，作为物理互斥的第二道门。"""
         if self._mode == 'polish':
             if self.probe.has_service('/yolo_grasp/grasp_hold'):
-                return '检测到抓取服务仍在线，请先停止二指/灵巧手软件栈。'
-        elif self._mode in ('twofinger', 'linkerhand'):
+                return '检测到抓取服务仍在线，请先停止二指/柔触/灵巧手软件栈。'
+        elif self._mode in ('twofinger', 'softtouch', 'linkerhand'):
             if (self.probe.has_service('/elite_polish/run')
                     or self.probe.has_node('ysURForceAppControl')):
                 return '检测到打磨软件栈仍在线，请先安全停止打磨系统。'
@@ -1512,6 +1537,7 @@ class MainWindow(QMainWindow):
                        or self._group_running('brain'))
         self._btn_all.setEnabled(not mapping_on and self._mode in MODES)
         self._radio_two.setEnabled(not mode_locked)
+        self._radio_soft.setEnabled(not mode_locked)
         self._radio_hand.setEnabled(not mode_locked)
         self._radio_polish.setEnabled(not mode_locked)
         # 保存建图: 只有 /map_save 服务在线才可点

@@ -64,8 +64,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "end_effector_mode", default_value="twofinger",
-            choices=["twofinger", "linkerhand", "polish"],
-            description="实际安装末端: twofinger/linkerhand/polish",
+            choices=["twofinger", "softtouch", "linkerhand", "polish"],
+            description="实际安装末端: twofinger/softtouch/linkerhand/polish",
         ),
     ]
 
@@ -142,9 +142,8 @@ def generate_launch_description():
                 actions=[
                     LogInfo(msg="=" * 60),
                     LogInfo(msg="全部启动完成："),
-                    LogInfo(msg="  机械臂侧请另开：ros2 launch "
-                                "~/Documents/elite_robot_ws/biaoding/"
-                                "yolo_grasp_two_finger.launch.py"),
+                    LogInfo(msg="  机械臂侧请启动与 end_effector_mode "
+                                "匹配的抓取/打磨软件栈"),
                     LogInfo(msg="  验证：ros2 service list | grep yolo_grasp"),
                     LogInfo(msg="=" * 60),
                 ],

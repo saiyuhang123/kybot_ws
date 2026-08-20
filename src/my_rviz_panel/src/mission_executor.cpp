@@ -17,7 +17,7 @@ bool actionAllowedForMode(const std::string& mode, const std::string& action)
         return true;
     if (mode == "polish")
         return action == "polish";
-    if (mode == "twofinger" || mode == "linkerhand")
+    if (mode == "twofinger" || mode == "softtouch" || mode == "linkerhand")
         return action == "grasp" || action == "place" ||
                action == "home2" || action == "ready";
     return false;
@@ -45,6 +45,7 @@ MissionExecutor::MissionExecutor(const std::string& name)
         "end_effector_mode", "twofinger");
     declare_parameter("polish_timeout_sec", 1020.0);
     if (end_effector_mode_ != "twofinger" &&
+        end_effector_mode_ != "softtouch" &&
         end_effector_mode_ != "linkerhand" &&
         end_effector_mode_ != "polish")
     {

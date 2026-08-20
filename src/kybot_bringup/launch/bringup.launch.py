@@ -13,7 +13,7 @@ mission_executor、Nav2、IMU、FAST_LIO 会自动在独立终端窗口运行。
     setup_can:=true      # 是否需要配置 CAN 总线 (默认 true，需免密 sudo)
     use_rviz:=false      # 是否启动 RViz (默认 false)
     use_sim_time:=false  # 是否使用仿真时间 (默认 false)
-    end_effector_mode:=twofinger  # twofinger/linkerhand/polish
+    end_effector_mode:=twofinger  # twofinger/softtouch/linkerhand/polish
 """
 
 from launch import LaunchDescription
@@ -56,8 +56,8 @@ def generate_launch_description():
     )
     declare_end_effector_mode = DeclareLaunchArgument(
         "end_effector_mode", default_value="twofinger",
-        choices=["twofinger", "linkerhand", "polish"],
-        description="实际安装末端: twofinger/linkerhand/polish"
+        choices=["twofinger", "softtouch", "linkerhand", "polish"],
+        description="实际安装末端: twofinger/softtouch/linkerhand/polish"
     )
     use_sim_time = LaunchConfiguration("use_sim_time")
     end_effector_mode = LaunchConfiguration("end_effector_mode")
