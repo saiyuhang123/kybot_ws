@@ -76,6 +76,12 @@ NAV_CMD = (KYBOT_SETUP + 'ros2 launch kybot_bringup bringup.launch.py '
 # 原先由 trash_pipeline 内嵌, 现在拆成独立组, 才能按末端单独起停。
 PERCEP_CMD = KYBOT_SETUP + 'ros2 launch trash_mission trash_mission.launch.py'
 NEEDS_PERCEP = {'twofinger', 'softtouch'}
+# 首次随 nav 启动时的错峰秒数, 照搬 trash_pipeline 原本的 TimerAction:
+# "D435 + 感知在底盘起来后启动, 避免开机瞬间 CPU 过载", RViz 最后起。
+# D435 initial_reset + YOLO-World 加载若与 FAST_LIO/Nav2 初始化同时进行,
+# 在 Jetson 上会正面抢 CPU。热换末端时 nav 已稳定, 不需要这个延时。
+PERCEP_START_DELAY_S = 12
+RVIZ_START_DELAY_S = 16
 # 可在不停定位导航的前提下互换的末端。打磨头用的是另一套机械臂驱动
 # (start_robot.launch.py + 力控 + 深度相机), 不参与热换, 仍需整组停启。
 HOT_SWAPPABLE = {'twofinger', 'softtouch', 'linkerhand'}
@@ -1282,7 +1288,7 @@ class MainWindow(QMainWindow):
         新末端的机械臂软件栈不自动启动: 必须等人物理换完末端再手动点启动。
         """
         old_mode = self._mode
-        if self._seq_steps:
+        if self._seq_busy():
             QMessageBox.information(self, '忙', '一键启动/上一次切换尚未结束。')
             self._sync_mode_radios()
             return
@@ -1418,7 +1424,8 @@ class MainWindow(QMainWindow):
         else:
             self._start_group(key)
 
-    def _start_group(self, key):
+    def _start_group(self, key, delay_s=0):
+        """启动一个进程组。delay_s 为整组附加的错峰延时 (秒)。"""
         if key in ('nav', 'arm', 'brain') and not self._require_mode(
                 '启动%s' % self._rows[key]['title']):
             return
@@ -1442,6 +1449,10 @@ class MainWindow(QMainWindow):
             self._sys_log('车前感知已在运行, 不重复启动')
             return
         if key == 'mapping':
+            if self._seq_busy() or self._swap_active:
+                # 建图会停掉 nav/arm/brain/percep, 半路插进热换会把状态搅烂
+                self._sys_log('一键启动/热换末端进行中, 暂不开启建图')
+                return
             busy = [k for k in MUTEX_WITH_MAPPING if self._group_running(k)]
             if busy:
                 names = '、'.join(self._rows[k]['title'] for k in busy)
@@ -1476,7 +1487,7 @@ class MainWindow(QMainWindow):
             delay = spec[3] if len(spec) > 3 else 0
             if key == 'arm' and i > 0 and len(spec) <= 3:
                 delay = MODES[self._mode]['arm_grasp_delay_s']
-            self._start_proc(pkey, title, cmd, delay_s=delay)
+            self._start_proc(pkey, title, cmd, delay_s=delay + delay_s)
         self._sys_log('启动组: %s' % self._rows[key]['title'])
         if key in ('camera', 'nav'):
             # nav 组内含相机但没人开流, 同样补上 登录+开流
@@ -1484,12 +1495,14 @@ class MainWindow(QMainWindow):
         if key == 'ocr':
             self._ocr_post_start()
         if key == 'nav' and self._mode in NEEDS_PERCEP:
-            # 原 trash_pipeline 会连带拉起车前感知和 MyPanel 版 RViz。
-            # 拆组后在这里补齐, 操作习惯保持不变。
+            # 原 trash_pipeline 会连带拉起车前感知和 MyPanel 版 RViz, 并且
+            # 分别延后 12s / 16s。拆组后必须把这个错峰照搬过来, 否则
+            # D435 initial_reset + YOLO 加载会和 FAST_LIO/Nav2 初始化撞车。
+            # 用 _start_proc 自带的延时: 期间点"停止"可取消待启动的进程。
             if not self._group_running('percep'):
-                self._start_group('percep')
+                self._start_group('percep', delay_s=PERCEP_START_DELAY_S)
             if not self._group_running('rviz'):
-                self._start_group('rviz')
+                self._start_group('rviz', delay_s=RVIZ_START_DELAY_S)
 
     def _group_cmds(self, key):
         if key == 'nav':
@@ -1646,8 +1659,36 @@ class MainWindow(QMainWindow):
         if killed:
             self._sys_log('清理残留进程(%s): %s' % (pattern, ' '.join(killed)))
 
-    def _stop_all(self):
+    def _seq_busy(self):
+        """顺序流程是否占用中。必须连 _seq_ready_fn 一起看: 最后一步弹出后
+        _seq_steps 会先空掉, 而就绪等待仍在进行, 此时插入新流程会让旧的
+        ready_fn/超时错误地作用到新流程的 done/fail 钩子上。"""
+        return bool(self._seq_steps) or self._seq_ready_fn is not None
+
+    def _abort_seq(self, reason):
+        """中止顺序流程, 且不触发 done/fail 钩子 (避免误报成功或误回滚)."""
+        if not self._seq_busy() and not self._swap_active:
+            return
+        self._seq_timer.stop()
         self._seq_steps = []
+        self._seq_ready_fn = None
+        self._seq_fail_fn = None
+        self._seq_done_fn = None
+        if self._swap_active:
+            self._swap_active = False
+            # 半切换状态: 参数可能已改也可能没改, 不猜。强制重新回读,
+            # 让"实际生效末端"标签把真相显示出来; 不一致时
+            # _end_effector_software_conflict() 会拦住启动机械臂。
+            self._live_mode = None
+            self._live_mode_next = 0.0
+            self._sys_log('热换末端被中止(%s): 请看"实际生效末端"确认当前状态'
+                          % reason)
+        else:
+            self._sys_log('%s被中止(%s)' % (self._seq_title, reason))
+        self._refresh_buttons()
+
+    def _stop_all(self):
+        self._abort_seq('全部停止')
         safe_polish = self._mode == 'polish' and self._polish_busy()
         for p in self._procs.values():
             if p.active() and not (safe_polish and
@@ -1746,8 +1787,8 @@ class MainWindow(QMainWindow):
         return ''
 
     def _start_all(self):
-        if self._seq_steps:
-            self._status_label.setText('一键启动已在进行中')
+        if self._seq_busy() or self._swap_active:
+            self._status_label.setText('一键启动/热换末端已在进行中')
             return
         if not self._require_mode('一键全部启动'):
             return
@@ -1845,6 +1886,8 @@ class MainWindow(QMainWindow):
                     or self._group_running('brain'))
         self._btn_all.setEnabled(not mapping_on and not self._swap_active
                                  and self._mode in MODES)
+        # 建图不在 MUTEX_WITH_MAPPING 里, 需单独锁: 它会停 nav/arm/brain/percep
+        self._rows['mapping']['btn'].setEnabled(not self._swap_active)
         for key, radio in (('twofinger', self._radio_two),
                            ('softtouch', self._radio_soft),
                            ('linkerhand', self._radio_hand),
