@@ -95,7 +95,8 @@ MISSION_EXECUTOR_NODE = 'mission_executor'
 # 残留一段时间, 用服务名判"还在"会误判, 白等到超时。三种抓取末端共用
 # /yolo_grasp/*, 靠服务名本来也区分不了, 只能确认这些节点"全没了"。
 STALE_STACK_NODES = ('robot_cartesian_control', 'gripper_server',
-                     'ysURForceAppControl')
+                     'linker_hand_sdk', 'ysURForceAppControl',
+                     'elite_polish_bridge')
 RVIZ_CFG = '/home/nvidia/.rviz2/default.rviz'
 
 # ---------- 四种互斥末端的 launch 配对 ----------
@@ -234,12 +235,17 @@ class RosProbe:
         self.tf_buffer = None
         self.mission_status = None   # 最近一次 /mission/status
         self.polish_status = ''      # 最近一次 /elite_polish/status
+        self.linker_hand_state_at = 0.0  # 最近一次灵巧手真实状态帧
         self.capture_hook = None     # CAPTURING 状态跳变回调 (MainWindow 赋值)
         self.ocr_feedback_hook = None  # /ocr_feedback 话题回调
         self.on_error = None           # 探针异常上报 (MainWindow 赋值)
         self.init_log = []             # 初始化阶段的异常留底
         self._prev_status = None
         self._init_error = None
+        # get_service_names_and_types() 会同时混入客户端端点，不能直接用来
+        # 判断服务端是否在线。这里缓存逐节点查询得到的真实 Service Servers。
+        self._service_servers_cache = frozenset()
+        self._service_servers_cache_at = 0.0
         # 第一阶段: 核心 (rclpy + 节点 + spin) —— 失败则探针全灭
         try:
             import rclpy
@@ -291,6 +297,13 @@ class RosProbe:
                 String, '/ocr_feedback', self._on_ocr_feedback, 10)
         except Exception as exc:
             self._report_error('OCR 接口不可用: %s' % exc)
+        try:
+            from sensor_msgs.msg import JointState
+            self.node.create_subscription(
+                JointState, '/cb_right_hand_state',
+                self._on_linker_hand_state, 10)
+        except Exception as exc:
+            self._report_error('灵巧手状态监听不可用: %s' % exc)
         try:
             from rcl_interfaces.srv import GetParameters, SetParameters
             self.set_param_cli = self.node.create_client(
@@ -375,6 +388,9 @@ class RosProbe:
     def _on_polish_status(self, msg):
         self.polish_status = msg.data.strip()
 
+    def _on_linker_hand_state(self, _msg):
+        self.linker_hand_state_at = time.monotonic()
+
     def _on_ocr_feedback(self, msg):
         if self.ocr_feedback_hook is not None:
             try:
@@ -428,9 +444,24 @@ class RosProbe:
             return False
 
     def has_service(self, name):
+        """只判断真实 Service Server，不把仅创建 client 的节点算在线。"""
         try:
-            return name in [n for n, _t in
-                            self.node.get_service_names_and_types()]
+            now = time.monotonic()
+            if now - self._service_servers_cache_at > 0.5:
+                servers = set()
+                for node_name, namespace in \
+                        self.node.get_node_names_and_namespaces():
+                    try:
+                        entries = self.node.get_service_names_and_types_by_node(
+                            node_name, namespace)
+                    except Exception:
+                        # 节点可能恰好在图查询期间退出；跳过它，下次刷新重查。
+                        continue
+                    servers.update(service_name
+                                   for service_name, _types in entries)
+                self._service_servers_cache = frozenset(servers)
+                self._service_servers_cache_at = now
+            return name in self._service_servers_cache
         except Exception:
             return False
 
@@ -439,6 +470,20 @@ class RosProbe:
             return self.node.count_publishers(topic) > 0
         except Exception:
             return False
+
+    def has_subscriber(self, topic):
+        try:
+            return self.node.count_subscribers(topic) > 0
+        except Exception:
+            return False
+
+    def linker_hand_ready(self, max_state_age=3.0):
+        """SDK、命令接收端和持续状态帧三者都正常才算灵巧手就绪。"""
+        age = time.monotonic() - self.linker_hand_state_at
+        return (self.has_node('linker_hand_sdk')
+                and self.has_subscriber('/cb_right_hand_control_cmd')
+                and self.linker_hand_state_at > 0.0
+                and age <= max_state_age)
 
     def shutdown(self):
         node = self.node
@@ -1732,6 +1777,7 @@ class MainWindow(QMainWindow):
     SWEEP_PATTERNS = {
         'arm': [r'yolo_grasp[.]py',
                 r'soft_touch[.]launch[.]py',
+                r'linker_hand_sd[k]',
                 r'gripper_serve[r]',
                 r'ysURForceAppContro[l]',
                 r'ysAppComman[d]',
@@ -1878,9 +1924,13 @@ class MainWindow(QMainWindow):
                     and self.probe.has_node('gripper_server')
                     and self.probe.has_service('/gripper_command')
                     and self.probe.has_publisher('/gripper_pressure'))
-        if self._mode in ('twofinger', 'linkerhand'):
+        if self._mode == 'twofinger':
             return (self.probe.has_node('robot_cartesian_control')
                     and self.probe.has_service('/yolo_grasp/grasp_hold'))
+        if self._mode == 'linkerhand':
+            return (self.probe.has_node('robot_cartesian_control')
+                    and self.probe.has_service('/yolo_grasp/grasp_hold')
+                    and self.probe.linker_hand_ready())
         return False
 
     def _end_effector_software_conflict(self):
