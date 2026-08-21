@@ -1,9 +1,11 @@
 brain_node:
   ros__parameters:
-    # DeepSeek OpenAI 兼容端点; Key 走环境变量 DEEPSEEK_API_KEY (推荐) 或此处的 api_key
+    # DeepSeek OpenAI 兼容端点。真实 Key 放在仓库外部，避免进入 Git。
     api_base: "https://api.deepseek.com"
     model: "deepseek-v4-flash"
-    api_key: "sk-ed90d04aeebb44d38a38bf1b1ea12b78"
+    api_key: ""  # 仅保留为手动覆盖入口，不要在仓库中填写真实 Key
+    api_key_file: "/home/nvidia/apiFlies/api.yaml"
+    api_key_field: "deepseekapi"
     # 点位白名单 (RViz 面板保存的文件, brain 每次调用前重新读取)
     waypoints_file: "/home/nvidia/kybot_ws/location/location.yaml"
     llm_timeout_sec: 60.0

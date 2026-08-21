@@ -18,6 +18,7 @@ import threading
 import time
 
 import rclpy
+import yaml
 from rclpy.node import Node
 from std_msgs.msg import String
 from nav_msgs.msg import Odometry
@@ -134,7 +135,9 @@ class BrainNode(Node):
     def _declare_params(self):
         self.declare_parameter('api_base', 'https://api.deepseek.com')
         self.declare_parameter('model', 'deepseek-v4-flash')
-        self.declare_parameter('api_key', '')  # 空则用 DEEPSEEK_API_KEY
+        self.declare_parameter('api_key', '')  # 仅用于运行时手动覆盖
+        self.declare_parameter('api_key_file', '')
+        self.declare_parameter('api_key_field', 'deepseekapi')
         self.declare_parameter('waypoints_file',
                                '/home/nvidia/kybot_ws/location/location.yaml')
         self.declare_parameter('llm_timeout_sec', 60.0)
@@ -154,9 +157,15 @@ class BrainNode(Node):
         p = self.get_parameter
         self._api_base = p('api_base').value
         self._model = p('model').value
-        self._api_key = (p('api_key').value
-                         or os.getenv('DEEPSEEK_API_KEY', '')
-                         or os.getenv('DASHSCOPE_API_KEY', ''))
+        self._api_key_file = os.path.expanduser(
+            str(p('api_key_file').value).strip())
+        self._api_key_field = str(p('api_key_field').value).strip()
+        self._api_key = str(p('api_key').value).strip()
+        if not self._api_key and self._api_key_file:
+            self._api_key = self._load_api_key_from_file()
+        if not self._api_key:
+            self._api_key = (os.getenv('DEEPSEEK_API_KEY', '').strip()
+                             or os.getenv('DASHSCOPE_API_KEY', '').strip())
         self._waypoints_file = p('waypoints_file').value
         self._llm_timeout = p('llm_timeout_sec').value
         self._service_timeout = p('service_timeout_sec').value
@@ -173,6 +182,29 @@ class BrainNode(Node):
         self._approach_max_distance = p('approach_max_distance').value
         self._history_max = p('history_max').value
         self._audit_file = p('audit_file').value
+
+    def _load_api_key_from_file(self):
+        """从仓库外部 YAML 读取 Key，不把密钥写入日志或 ROS 参数。"""
+        try:
+            with open(self._api_key_file, 'r', encoding='utf-8') as stream:
+                data = yaml.safe_load(stream)
+        except (OSError, yaml.YAMLError) as exc:
+            self.get_logger().error(
+                '读取 API Key 文件失败 %s: %s'
+                % (self._api_key_file, exc))
+            return ''
+        if not isinstance(data, dict):
+            self.get_logger().error(
+                'API Key 文件顶层必须是 YAML 映射: %s' % self._api_key_file)
+            return ''
+        value = data.get(self._api_key_field, '')
+        if not isinstance(value, str) or not value.strip():
+            self.get_logger().error(
+                'API Key 文件缺少非空字符串字段 %r: %s'
+                % (self._api_key_field, self._api_key_file))
+            return ''
+        self.get_logger().info('API Key 已从外部文件加载')
+        return value.strip()
 
     def _build_system_prompt(self):
         """每次对话前刷新点位名单, 面板新录的点位即时生效."""
