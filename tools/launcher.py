@@ -278,6 +278,8 @@ class RosProbe:
             self.login_cli = self.node.create_client(Trigger, '/hk_camera/login')
             self.stream_cli = self.node.create_client(Trigger,
                                                       '/hk_camera/start_stream')
+            self.stop_stream_cli = self.node.create_client(
+                Trigger, '/hk_camera/stop_stream')
         except Exception as exc:
             self._report_error('任务/相机接口不可用(需 source 工作区环境): %s' % exc)
         try:
@@ -566,6 +568,8 @@ class MainWindow(QMainWindow):
         self._live_mode = None         # mission_executor 实际生效的末端
         self._live_mode_inflight = False
         self._live_mode_next = 0.0
+        # 图像流状态。拍照/云台只需登录, 不需要流; 开流会跑 1080p 软解吃 CPU
+        self._stream_on = False
 
         self.probe = RosProbe()
         self._build_ui()
@@ -655,6 +659,16 @@ class MainWindow(QMainWindow):
         self._btn_save_map.clicked.connect(self._save_map)
         mh = self._rows['mapping']['btn_log'].parent().layout()
         mh.addWidget(self._btn_save_map)
+        # 海康相机行加"开流/停流": 拍照只需登录, 开流才跑 1080p 软解
+        self._btn_stream = QPushButton('开流')
+        self._btn_stream.setFixedWidth(48)
+        self._btn_stream.setToolTip(
+            '图像流仅 OCR / 看实时画面需要。\n'
+            '拍照与云台只需登录, 不需要开流。\n'
+            '开流会在本机跑 1080p H.264 软解, 约占 1~2 个 CPU 核。')
+        self._btn_stream.clicked.connect(self._toggle_camera_stream)
+        ch = self._rows['camera']['btn_log'].parent().layout()
+        ch.addWidget(self._btn_stream)
         left.addWidget(groups_box)
 
         # 全局按钮
@@ -664,6 +678,15 @@ class MainWindow(QMainWindow):
 
         self._chk_rviz = QCheckBox('一键启动时包含 RViz')
         left.addWidget(self._chk_rviz)
+
+        # 默认不勾: 日常任务只拍照, 不需要图像流。勾上才在相机起来后自动开流。
+        self._chk_stream = QCheckBox('相机启动时自动开图像流 (仅 OCR 需要)')
+        self._chk_stream.setChecked(False)
+        self._chk_stream.setToolTip(
+            '拍照(/hk_camera/capture)由海康 SDK 在相机端出 JPEG, 不需要图像流。\n'
+            '开流会在 Jetson 上跑 1080p H.264 软解 (avdec_h264), 约占 1~2 个核。\n'
+            'OCR 只能识别图像流里的最新帧, 所以 OCR 启动时会自动开流。')
+        left.addWidget(self._chk_stream)
 
         self._btn_all = QPushButton('一键全部启动')
         self._btn_all.setObjectName('primary')
@@ -1068,6 +1091,13 @@ class MainWindow(QMainWindow):
                 if not self.probe.ocr_cli.service_is_ready():
                     self._on_ocr_feedback('[巡检拍照] OCR服务未运行')
                     return
+                if not self._stream_on:
+                    # ocr_node 只认图像流里的最新帧, 没流必然识别不出来。
+                    # 明确报出来, 免得看成"OCR 识别不准"。
+                    self._on_ocr_feedback(
+                        '[巡检拍照] 图像流未开启, OCR 无帧可识别; '
+                        '请点「海康相机」行的"开流"或勾选自动开流')
+                    return
                 from ocr_interfaces.srv import RecognizeText
                 req = RecognizeText.Request()
                 req.conf_threshold = 0.0
@@ -1119,6 +1149,7 @@ class MainWindow(QMainWindow):
             if key == 'dep_camera':
                 self._camera_post_start()
             if key == 'dep_ocr':
+                self._ensure_camera_stream('OCR')
                 self._ocr_post_start()
 
     # ---------- OCR 启动后链: 预热首次推理 (GPU 冷启动可达 20~40s) ----------
@@ -1137,6 +1168,17 @@ class MainWindow(QMainWindow):
         else:
             self.sig_sys.emit('OCR 服务未就绪, 预热跳过')
             return
+        # ocr_node 无帧时 /ocr/recognize 直接返回失败, 模型懒加载不会被触发,
+        # 预热就白做了。所以必须先等图像流真的开起来再预热。
+        for _ in range(120):  # 最多再等 60s
+            if self._stream_on:
+                break
+            time.sleep(0.5)
+        else:
+            self.sig_sys.emit('图像流未开启, OCR 预热跳过 '
+                              '(开流后首次识别会有 20~40s 冷启动)')
+            return
+        time.sleep(2.0)  # 等第一帧真正到达 ocr_node
         self.sig_sys.emit('OCR 预热中(首次推理较慢, 约 20~40s)...')
         from ocr_interfaces.srv import RecognizeText
         req = RecognizeText.Request()
@@ -1149,18 +1191,40 @@ class MainWindow(QMainWindow):
                     self.sig_sys.emit('OCR 预热超时')
                     return
                 time.sleep(0.2)
-            self.sig_sys.emit('OCR 预热完成, 可以识别')
+            res = fut.result()
+            if res.success:
+                self.sig_sys.emit('OCR 预热完成, 可以识别')
+            else:
+                self.sig_sys.emit('OCR 预热未成功: %s' % res.message)
         except Exception as exc:
             self.sig_sys.emit('OCR 预热异常: %s' % exc)
 
-    # ---------- 相机启动后链: 登录 + 开流 (OCR/图像流前提) ----------
+    # ---------- 相机启动后链: 登录(总是) + 开流(按需) ----------
 
-    def _camera_post_start(self):
-        """相机节点起来后自动调 login + start_stream, 否则无图像流、OCR 无帧."""
-        threading.Thread(target=self._camera_post_start_run, daemon=True).start()
+    def _ocr_active(self):
+        """OCR 是否在跑。ocr_node 只认 /hk_camera/image_raw 里的最新帧
+        (见 ocr_node.py 的 /ocr/recognize 实现, 请求里不带图), 所以
+        OCR 一旦运行就必须开流, 否则识别永远返回"无最新帧"。"""
+        p = self._procs.get('dep_ocr')
+        return (self._group_running('ocr')
+                or (p is not None and p.running())
+                or self.probe.has_node('ocr_node'))
 
-    def _camera_post_start_run(self):
-        from std_srvs.srv import Trigger
+    def _camera_post_start(self, want_stream=None):
+        """相机节点起来后自动登录; 图像流按需开。
+
+        关键: 拍照(/hk_camera/capture)走海康 SDK 在相机端出 JPEG, 只需要
+        login, 不需要 start_stream。而开流会在本机跑 1080p H.264 软解
+        (hk_decoder 的 avdec_h264) + 每帧多次全帧拷贝, 约吃 1~2 个 CPU 核。
+        所以默认不开流, 只有 OCR 在跑或操作员勾选"图像流"时才开。
+        """
+        if want_stream is None:
+            # 在 GUI 线程判定, 不把 Qt 控件带进后台线程
+            want_stream = (self._chk_stream.isChecked() or self._ocr_active())
+        threading.Thread(target=self._camera_post_start_run,
+                         args=(bool(want_stream),), daemon=True).start()
+
+    def _camera_post_start_run(self, want_stream):
         # 等相机服务就绪 (最多 60s, nav 组里相机要 21s 才拉起)
         for _ in range(120):
             try:
@@ -1173,9 +1237,45 @@ class MainWindow(QMainWindow):
             self.sig_sys.emit('相机服务未就绪, 登录/开流跳过')
             return
         ok_login = self._call_trigger_blocking(self.probe.login_cli, '登录')
+        if not ok_login:
+            return
+        if not want_stream:
+            self.sig_sys.emit('相机: 已登录(可拍照/云台)。未开图像流 —— '
+                              '拍照不需要流; 需要 OCR 或看实时画面时再开流')
+            return
         ok_stream = self._call_trigger_blocking(self.probe.stream_cli, '开流')
-        if ok_login and ok_stream:
-            self.sig_sys.emit('相机: 登录+开流完成, 图像流已开启')
+        if ok_stream:
+            self._stream_on = True
+            self.sig_sys.emit('相机: 登录+开流完成, 图像流已开启 '
+                              '(1080p 软解持续占 CPU, 用完请停流)')
+
+    def _ensure_camera_stream(self, reason):
+        """OCR 之类必须吃图像流的功能启动前调用: 补登录 + 开流."""
+        if self._stream_on:
+            return
+        self._sys_log('%s 需要图像流, 自动开流' % reason)
+        self._camera_post_start(want_stream=True)
+
+    def _toggle_camera_stream(self):
+        """手动开/停图像流。停流后拍照、云台、巡检全部照常可用。"""
+        if not self._stream_on:
+            self._camera_post_start(want_stream=True)
+            return
+        if self._ocr_active():
+            ret = QMessageBox.question(
+                self, '确认停流',
+                'OCR 正在运行，它只能识别图像流里的最新帧。\n'
+                '停流后 OCR 会返回"无最新帧"。仍要停流?')
+            if ret != QMessageBox.Yes:
+                return
+        threading.Thread(target=self._camera_stop_stream_run,
+                         daemon=True).start()
+
+    def _camera_stop_stream_run(self):
+        if self._call_trigger_blocking(self.probe.stop_stream_cli, '停流'):
+            self._stream_on = False
+            self.sig_sys.emit('相机: 已停流, CPU 软解已释放 '
+                              '(拍照/云台不受影响)')
 
     def _call_trigger_blocking(self, client, what, timeout=15.0):
         from std_srvs.srv import Trigger
@@ -1502,9 +1602,10 @@ class MainWindow(QMainWindow):
             self._start_proc(pkey, title, cmd, delay_s=delay + delay_s)
         self._sys_log('启动组: %s' % self._rows[key]['title'])
         if key in ('camera', 'nav'):
-            # nav 组内含相机但没人开流, 同样补上 登录+开流
+            # nav 组内含相机: 补登录(拍照/云台要用)。图像流按需, 见 _camera_post_start
             self._camera_post_start()
         if key == 'ocr':
+            self._ensure_camera_stream('OCR')
             self._ocr_post_start()
         if key == 'nav':
             # 原 trash_pipeline 会连带拉起车前感知和 MyPanel 版 RViz, 并且
@@ -1570,6 +1671,9 @@ class MainWindow(QMainWindow):
         for k, p in self._procs.items():
             if (k == key or k.startswith(key + '_')) and p.active():
                 p.stop()
+        if key in ('camera', 'nav'):
+            # 相机节点没了, 流自然也没了
+            self._stream_on = False
         self._sys_log('停止组: %s' % self._rows[key]['title'])
         self._sweep_group(key)
 
@@ -1703,6 +1807,7 @@ class MainWindow(QMainWindow):
 
     def _stop_all(self):
         self._abort_seq('全部停止')
+        self._stream_on = False
         safe_polish = self._mode == 'polish' and self._polish_busy()
         for p in self._procs.values():
             if p.active() and not (safe_polish and
@@ -1925,6 +2030,13 @@ class MainWindow(QMainWindow):
             self._btn_save_map.setEnabled(self.probe.has_service('/map_save'))
         except Exception:
             self._btn_save_map.setEnabled(False)
+        # 开流/停流: 相机节点在线才可点
+        self._btn_stream.setText('停流' if self._stream_on else '开流')
+        try:
+            self._btn_stream.setEnabled(
+                self.probe.has_node('hk_camera_node'))
+        except Exception:
+            self._btn_stream.setEnabled(False)
 
     def _refresh_live_mode(self):
         """回读 mission_executor 实际生效的末端 (后台线程, 主线程只读缓存)."""
