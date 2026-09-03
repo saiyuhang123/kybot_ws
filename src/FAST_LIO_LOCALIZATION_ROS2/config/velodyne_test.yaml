@@ -56,7 +56,7 @@
         publish:
             path_en:  false
             scan_publish_en:  true       # false: close all the point cloud output
-            dense_publish_en: true       # false: low down the points number in a global-frame point clouds scan.
+            dense_publish_en: false       # false: low down the points number in a global-frame point clouds scan. 已改 false: /cloud_registered 只被 global_localization 消费, ICP 前还要 0.5m voxel, 发降采样云即可, 大幅降低序列化和 Python 解析开销
             scan_bodyframe_pub_en: false  # true: output the point cloud scans in IMU-body-frame
 
         pcd_save:

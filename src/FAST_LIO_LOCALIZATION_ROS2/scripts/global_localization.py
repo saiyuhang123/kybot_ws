@@ -10,7 +10,7 @@ import rclpy
 from rclpy.node import Node
 import tf_transformations
 
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs_py import point_cloud2 as pc2
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import (
@@ -23,6 +23,18 @@ from std_msgs.msg import Header
 
 
 class GlobalLocalizationNode(Node):
+    # PointField.datatype → numpy dtype, 用于向量化解析 PointCloud2
+    _PF2NP = {
+        PointField.INT8:    np.int8,
+        PointField.UINT8:   np.uint8,
+        PointField.INT16:   np.int16,
+        PointField.UINT16:  np.uint16,
+        PointField.INT32:   np.int32,
+        PointField.UINT32:  np.uint32,
+        PointField.FLOAT32: np.float32,
+        PointField.FLOAT64: np.float64,
+    }
+
     def __init__(self):
         super().__init__('fast_lio_localization')
 
@@ -43,6 +55,8 @@ class GlobalLocalizationNode(Node):
 
         # ─── State Variables ─────────────────────────────────────
         self.global_map      = None
+        self.map_points      = None   # 降采样后全局地图点 (N×3), crop 直接用
+        self.map_normals     = None   # 与 map_points 对齐的法向量, 供 point-to-plane ICP
         self.initialized     = False
         self.T_map_to_odom   = np.eye(4)
         self.cur_odom        = None
@@ -68,18 +82,36 @@ class GlobalLocalizationNode(Node):
         self.get_logger().info('GlobalLocalizationNode initialized.')
 
     def pc2_to_array(self, pc_msg: PointCloud2) -> np.ndarray:
-        """PointCloud2 → (N×3) NumPy array"""
-        pts = []
-        for x, y, z in pc2.read_points(pc_msg, field_names=('x','y','z'), skip_nans=True):
-            pts.append((x, y, z))
-        return np.array(pts, dtype=np.float32)
+        """PointCloud2 → (N×3) NumPy array, numpy 向量化解析 (避免逐点 Python 循环)"""
+        names, formats, offsets = [], [], []
+        for f in pc_msg.fields:
+            dt = self._PF2NP[f.datatype]
+            formats.append((dt, (f.count,)) if f.count > 1 else dt)
+            names.append(f.name)
+            offsets.append(f.offset)
+        dtype = np.dtype({
+            'names': names, 'formats': formats,
+            'offsets': offsets, 'itemsize': pc_msg.point_step,
+        })
+        arr = np.frombuffer(pc_msg.data, dtype=dtype)
+        pts = np.stack([arr['x'], arr['y'], arr['z']], axis=-1).astype(np.float32)
+        if not pc_msg.is_dense:
+            pts = pts[np.isfinite(pts).all(axis=1)]
+        return pts
 
     def cb_init_map(self, msg: PointCloud2):
         pts = self.pc2_to_array(msg)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pts)
-        self.global_map = self.voxel_down_sample(pcd, self.map_voxel_size)
-        self.get_logger().info('Global map received and downsampled.')
+        pcd = self.voxel_down_sample(pcd, self.map_voxel_size)
+        # 法向量只在加载时算一次, 之后 crop 按掩码同步裁剪, 供 point-to-plane ICP 使用
+        pcd.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=self.map_voxel_size * 3.0, max_nn=30))
+        self.global_map  = pcd
+        self.map_points  = np.asarray(pcd.points)
+        self.map_normals = np.asarray(pcd.normals)
+        self.get_logger().info(
+            f'Global map received: {len(self.map_points)} points after downsampling, normals precomputed.')
         self.destroy_subscription(self._map_sub)
 
     def cb_init_pose(self, msg: PoseWithCovarianceStamped):
@@ -125,8 +157,18 @@ class GlobalLocalizationNode(Node):
         matched_odom = self.cur_scan_odom if self.cur_scan_odom is not None else self.cur_odom
         submap = self.crop_global_map_in_FOV(scan_copy, pose_est, matched_odom)
 
-        T, _       = self.registration_at_scale(scan_copy, submap, initial=pose_est, scale=5)
-        T, fitness = self.registration_at_scale(scan_copy, submap, initial=T,         scale=1)
+        vs = self.scan_voxel_size
+        # 粗配准: 大体素 + point-to-point, 收敛域大、抗差
+        T, _       = self.registration_at_scale(
+            self.voxel_down_sample(scan_copy, vs * 5),
+            self.voxel_down_sample(submap,    vs * 5),
+            initial=pose_est, scale=5, point_to_plane=False)
+        # 精配准: 正常体素 + point-to-plane, 精度高
+        # submap 已带预计算法向量, 此处不再重采样 (voxel_down_sample 会丢法向量)
+        T, fitness = self.registration_at_scale(
+            self.voxel_down_sample(scan_copy, vs),
+            submap,
+            initial=T,        scale=1, point_to_plane=True)
         self.get_logger().info(f'ICP fitness: {fitness:.3f}')
 
         if fitness > self.localization_th:
@@ -149,7 +191,7 @@ class GlobalLocalizationNode(Node):
         T_scan     = self.pose_to_mat(odom)
         T_map2scan = np.linalg.inv(pose_est @ T_scan)
 
-        pts = np.asarray(self.global_map.points)
+        pts = self.map_points
         hom = np.hstack([pts, np.ones((pts.shape[0],1))])
         pts_scan = (T_map2scan @ hom.T).T
 
@@ -161,7 +203,8 @@ class GlobalLocalizationNode(Node):
 
         subpts = pts[mask]
         submap = o3d.geometry.PointCloud()
-        submap.points = o3d.utility.Vector3dVector(subpts)
+        submap.points  = o3d.utility.Vector3dVector(subpts)
+        submap.normals = o3d.utility.Vector3dVector(self.map_normals[mask])
 
         header = Header()
         header.stamp    = self.get_clock().now().to_msg()
@@ -171,13 +214,17 @@ class GlobalLocalizationNode(Node):
 
         return submap
 
-    def registration_at_scale(self, scan, submap, initial, scale):
-        def down(p): return p.voxel_down_sample(self.scan_voxel_size * scale)
+    def registration_at_scale(self, scan, submap, initial, scale, point_to_plane):
+        if point_to_plane and submap.has_normals():
+            estimation = o3d.pipelines.registration.TransformationEstimationPointToPlane()
+        else:
+            # point-to-plane 需要 target 法向量, 没有时退回 point-to-point
+            estimation = o3d.pipelines.registration.TransformationEstimationPointToPoint()
         reg = o3d.pipelines.registration.registration_icp(
-            down(scan), down(submap),
+            scan, submap,
             max_correspondence_distance=1.0*scale,
             init=initial,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            estimation_method=estimation,
             criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=20)
         )
         return reg.transformation, reg.fitness
